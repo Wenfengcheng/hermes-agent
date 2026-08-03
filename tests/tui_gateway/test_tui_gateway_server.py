@@ -17443,6 +17443,7 @@ def test_model_save_key_uses_credential_lifecycle_and_picker_context(monkeypatch
         "name": "Test Provider",
         "models": ["test-model"],
         "total_models": 1,
+        "authenticated": True,
     }
     server._sessions["save-key-session"] = _session(agent=agent)
     monkeypatch.setattr(

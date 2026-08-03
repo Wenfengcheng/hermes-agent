@@ -413,7 +413,7 @@ def _(rid, params: dict) -> dict:
     provider_data = next((p for p in payload["providers"] if p["slug"] == slug), None)
     if provider_data is None:  # key saved but provider didn't appear — still success
         provider_data = {"slug": slug, "name": pconfig.name, "is_current": False, "models": [], "total_models": 0}
-    provider_data["authenticated"] = True  # synthetic fallback bypasses picker_hints
+        provider_data["authenticated"] = True  # synthetic fallback bypasses picker_hints
     return _ok(rid, {"provider": provider_data})
 
 
