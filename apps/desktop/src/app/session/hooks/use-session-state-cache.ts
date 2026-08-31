@@ -16,7 +16,6 @@ import {
   setCurrentModelTransient,
   setCurrentPersonality,
   setCurrentProviderTransient,
-  setCurrentReasoningEffort,
   setCurrentReasoningEffortWire,
   setCurrentServiceTier,
   setSessionStartedAt,
@@ -69,7 +68,7 @@ function syncRuntimeMetadataToView(state: ClientSessionState) {
   // sticky localStorage selection with that runtime value (#102793).
   setCurrentModelTransient(state.model ?? '')
   setCurrentProviderTransient(state.provider ?? '')
-  setCurrentReasoningEffort(state.reasoningEffort ?? '')
+  // Runtime effort belongs to the session slice, not the persisted new-chat draft.
   setCurrentReasoningEffortWire(state.reasoningEffortWire ?? '')
   setCurrentServiceTier(state.serviceTier ?? '')
   setCurrentFastMode(state.fast ?? false)

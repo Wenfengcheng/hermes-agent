@@ -21,7 +21,6 @@ import {
   setCurrentCwdTransient,
   setCurrentFastMode,
   setCurrentPersonality,
-  setCurrentReasoningEffort,
   setCurrentReasoningEffortWire,
   setCurrentServiceTier,
   setCurrentUsage,
@@ -248,9 +247,7 @@ export function handleSessionInfoEvent(ctx: GatewayEventContext): boolean {
         setCurrentPersonality(normalizePersonalityValue(payload.personality))
       }
 
-      if (typeof payload?.reasoning_effort === 'string') {
-        setCurrentReasoningEffort(payload.reasoning_effort)
-      }
+      // Session effort is published to its own slice below, never the sticky draft.
 
       if (typeof payload?.reasoning_effort_wire === 'string') {
         setCurrentReasoningEffortWire(payload.reasoning_effort_wire)
