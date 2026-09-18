@@ -265,7 +265,8 @@ class GitHubSource(SkillSource):
         # than the tree the paths were validated against (TOCTOU). Idempotent + cached.
         tree = self._get_repo_tree(repo)
         pinned_ref = self._tree_revisions.get(repo)
-        skill_md = self._fetch_file_content(repo, f"{skill_dir}/SKILL.md", ref=pinned_ref)
+        prefix = f"{skill_dir}/" if skill_dir else ""
+        skill_md = self._fetch_file_content(repo, f"{prefix}SKILL.md", ref=pinned_ref)
         if skill_md is None:
             return None
         referenced = _referenced_support_paths(skill_md)
@@ -278,11 +279,11 @@ class GitHubSource(SkillSource):
             revision = pinned_ref or tree[0]
         else:
             for rel_path in referenced:
-                self._add_support_file(repo, f"{skill_dir}/{rel_path}", rel_path, files, rel_path)
+                self._add_support_file(repo, f"{prefix}{rel_path}", rel_path, files, rel_path)
             revision = ""
         url = f"https://github.com/{repo}/" + (f"tree/{revision}/{skill_path}" if revision else skill_path)
         return SkillBundle(
-            name=skill_dir.split("/")[-1], files=files, source="github", identifier=identifier,
+            name=skill_dir.split("/")[-1] or repo.split("/")[-1], files=files, source="github", identifier=identifier,
             trust_level=self.trust_level_for(identifier), metadata={"source_url": url, "source_revision": revision},
         )
 
@@ -304,7 +305,7 @@ class GitHubSource(SkillSource):
         Returns False (bundle rejected) on an unsafe path or a SKILL.md-linked path that exists in the
         tree as a symlink/non-blob — that shape is an escape attempt. A linked path that is simply absent
         is a dangling link (repo-only dev tool, prose over-match): warn and install without it."""
-        prefix = f"{skill_path}/"
+        prefix = f"{skill_path}/" if skill_path else ""
         symlinked: set = set()
         for rel_path, item_path, regular in _tree_members(entries, prefix):
             if not regular:
@@ -338,14 +339,15 @@ class GitHubSource(SkillSource):
         if (split := _split_repo_id(identifier)) is None:
             return None
         repo, skill_path = split[0], split[1].rstrip("/")
-        content = self._fetch_file_content(repo, f"{skill_path}/SKILL.md")
+        prefix = f"{skill_path}/" if skill_path else ""
+        content = self._fetch_file_content(repo, f"{prefix}SKILL.md")
         if not content:
             return None
         fm = _parse_frontmatter(content)
         tags = _hermes_tags(fm) or (fm["tags"] if isinstance(fm.get("tags"), list) else [])
         provider = github_provider_for(repo)
         return SkillMeta(
-            name=fm.get("name", skill_path.split("/")[-1]), description=str(fm.get("description", "")),
+            name=fm.get("name", skill_path.split("/")[-1] or repo.split("/")[-1]), description=str(fm.get("description", "")),
             source="github", identifier=identifier, trust_level=self.trust_level_for(identifier),
             repo=repo, path=skill_path, tags=[str(t) for t in tags],
             extra={"provider": provider} if provider else {},

@@ -99,6 +99,8 @@ class SkillsShSource(SkillSource):
         def _relabel(github_id: Optional[str]) -> Optional[SkillBundle]:
             bundle = self.github.fetch(github_id) if github_id else None
             if bundle:
+                if github_id.endswith("/"):
+                    bundle.name = canonical.rsplit("/", 1)[-1]
                 bundle.source, bundle.identifier = "skills.sh", self._wrap_identifier(canonical)
                 bundle.metadata.update(self._detail_to_metadata(canonical, detail))
             return bundle or None
@@ -244,6 +246,13 @@ class SkillsShSource(SkillSource):
                  or self.github._find_skill_in_repo_tree(repo, skill_token))
         if found:
             return found
+
+        # A single-skill repository can put SKILL.md at its root. Match its
+        # declared name, not just the existence of a root file: otherwise any
+        # stale/unrelated catalog slug could silently install the wrong skill.
+        root_meta = self.github.inspect(f"{repo}/")
+        if root_meta and self._token_variants(root_meta.name) & self._token_variants(skill_token):
+            return root_meta.identifier
 
         # Fallback: scan repo root for directories that might contain skills.
         try:
