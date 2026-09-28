@@ -762,6 +762,11 @@ def detect_local_server_type(base_url: str, api_key: str = "") -> Optional[str]:
                     if _is_connect_timeout(exc):
                         _note_endpoint_blackholed(server_url)
                         raise
+                    # Some gateways accept unknown paths but never answer them.
+                    # Stop fingerprinting after one read timeout, without condemning
+                    # the host: its OpenAI-compatible /models may still work.
+                    if isinstance(exc, httpx.ReadTimeout):
+                        break
     except Exception:
         pass
     # Negative verdict in memory only (never on disk — failures are often transient).
