@@ -10,7 +10,9 @@ import {
   $workspaceCwdOwner,
   releaseWorkspaceCwdOwner,
   setCurrentBranch,
-  setCurrentCwd
+  setCurrentCwd,
+  $currentReasoningEffort,
+  setCurrentReasoningEffort
 } from '@/store/session'
 
 import { handleSessionInfoEvent } from './session-info'
@@ -60,6 +62,18 @@ function sessionInfoEvent({
 }
 
 describe('handleSessionInfoEvent workspace ownership', () => {
+  it('keeps an owned runtime effort in its slice without persisting over a manual draft', () => {
+    setCurrentReasoningEffort('low')
+    const ctx = sessionInfoEvent({ activeSessionId: 'runtime', explicitSid: 'runtime', cwd: '/repo' })
+    ctx.payload = { ...ctx.payload, reasoning_effort: 'high' }
+    let state = createClientSessionState('stored')
+    ctx.deps.updateSessionState = (_sid, update) => (state = update(state))
+    handleSessionInfoEvent(ctx)
+    expect(state.reasoningEffort).toBe('high')
+    expect($currentReasoningEffort.get()).toBe('low')
+    expect(window.localStorage.getItem('hermes.desktop.composer.reasoning-effort')).toBe('low')
+    setCurrentReasoningEffort('')
+  })
   beforeEach(() => {
     $selectedStoredSessionId.set(null)
     $workspaceCwdOwner.set(null)
