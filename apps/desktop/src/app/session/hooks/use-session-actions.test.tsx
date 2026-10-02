@@ -2341,6 +2341,48 @@ describe('resumeSession failure recovery', () => {
     dropSessionState('runtime-1')
   })
 
+  it.each(['', 'medium', 'low'])('sends the original draft effort %j after resuming a pinned session', async draft => {
+    const previousEffort = $currentReasoningEffort.get()
+    const stateMap = { current: new Map<string, ClientSessionState>() }
+    setCurrentReasoningEffort(draft)
+    const persistedDraft = window.localStorage.getItem('hermes.desktop.composer.reasoning-effort')
+    vi.mocked(getLatestSessionMessages).mockResolvedValue({ messages: [] } as never)
+    const requestGateway = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'session.resume') {
+        return {
+          info: { reasoning_effort: 'high', reasoning_effort_wire: 'high' },
+          messages: [],
+          resumed: params?.session_id,
+          session_id: 'runtime-1'
+        } as never
+      }
+
+      return {} as never
+    })
+
+    try {
+      await runResume(requestGateway, { sessionStateByRuntimeIdRef: stateMap })
+      publishSessionState('runtime-1', stateMap.current.get('runtime-1')!)
+      expect(PRIMARY_SESSION_VIEW.$reasoningEffort.get()).toBe('high')
+      cleanup()
+
+      const params = await createWith(() => {}, handle => {
+        handle.startFreshSessionDraft({ workspaceTarget: null })
+      })
+
+      expect(params).toBeDefined()
+      if (draft) {
+        expect(params).toMatchObject({ reasoning_effort: draft })
+      } else {
+        expect(params).not.toHaveProperty('reasoning_effort')
+      }
+      expect(window.localStorage.getItem('hermes.desktop.composer.reasoning-effort')).toBe(persistedDraft)
+    } finally {
+      dropSessionState('runtime-1')
+      setCurrentReasoningEffort(previousEffort)
+    }
+  })
+
   it('does not mark a resumed effort pending when the resume reply already carries it', async () => {
     const sessionStateByRuntimeIdRef = { current: new Map<string, ClientSessionState>() }
 

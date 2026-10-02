@@ -39,7 +39,6 @@ import {
   setCurrentPersonality,
   setCurrentProvider,
   setCurrentProviderTransient,
-  setCurrentReasoningEffort,
   setCurrentReasoningEffortWire,
   setCurrentServiceTier,
   setCurrentUsage,
@@ -2461,7 +2460,10 @@ export function applyStoredSessionPreviewRuntimeInfo(
   // the coherence gate (#125336).
   setCurrentModelTransient(stored?.model || '')
   setCurrentProviderTransient('')
-  setCurrentReasoningEffort('')
+  // The cold preview has no effort yet; the selected session view already
+  // reports it as pending. Clearing the persisted draft here would erase the
+  // user's next-chat choice before session.resume even returns.
+  setCurrentReasoningEffortWire('')
   setCurrentServiceTier('')
   setCurrentFastMode(false)
   setYoloActive(false)
