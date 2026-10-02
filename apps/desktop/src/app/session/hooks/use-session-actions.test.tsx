@@ -2368,6 +2368,7 @@ describe('resumeSession failure recovery', () => {
 
       const params = await createWith(() => {}, handle => {
         handle.startFreshSessionDraft({ workspaceTarget: null })
+        expect(PRIMARY_SESSION_VIEW.$reasoningEffortWire.get()).toBe('')
       })
 
       expect(params).toBeDefined()

@@ -96,6 +96,7 @@ import {
   setCurrentCwd,
   setCurrentCwdExplicit,
   setCurrentCwdTransient,
+  setCurrentReasoningEffortWire,
   setCurrentServiceTier,
   setCurrentUsage,
   setFreshDraftReady,
@@ -742,8 +743,9 @@ export function useSessionActions({
       // localStorage) — a new chat FOLLOWS your last pick instead of snapping
       // back to the profile default, so we deliberately don't reset it here. The
       // profile default still owns first-run seeding and profile switches (see
-      // refreshCurrentModel). Only $currentServiceTier (a live-session mirror)
-      // is cleared.
+      // refreshCurrentModel). Live-session wire effort and service tier do
+      // not describe the new draft and must be cleared.
+      setCurrentReasoningEffortWire('')
       setCurrentServiceTier('')
       setYoloActive(false)
       setNewChatWorkspaceTarget(hasWorkspaceTarget ? workspaceTarget : undefined)
