@@ -197,6 +197,74 @@ def test_api_get_credentials_refresh_persists_authorized_user_type(api_module, m
     assert saved["type"] == "authorized_user"
 
 
+@pytest.mark.parametrize("backend", ["python", "gws"])
+@pytest.mark.parametrize("response", [{}, {"messages": []}, {"resultSizeEstimate": 0}])
+def test_gmail_search_empty_json(api_module, monkeypatch, capsys, backend, response):
+    """The public CLI emits the same successful empty array on either backend."""
+    service = MagicMock()
+    messages = service.users.return_value.messages.return_value
+    messages.list.return_value.execute.return_value = response
+    build = MagicMock(return_value=service)
+    monkeypatch.setattr(api_module, "build_service", build)
+    monkeypatch.setattr(api_module, "_gws_binary", lambda: "gws" if backend == "gws" else None)
+    run = MagicMock(return_value=subprocess.CompletedProcess([], 0, json.dumps(response), ""))
+    monkeypatch.setattr(api_module.subprocess, "run", run)
+    monkeypatch.setattr(sys, "argv", ["google_api.py", "gmail", "search", "is:unread", "--max", "7"])
+
+    api_module.main()
+
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "[]"
+    assert json.loads(captured.out) == []
+    assert captured.err == ""
+    messages.get.assert_not_called()
+    if backend == "python":
+        build.assert_called_once_with("gmail", "v1")
+        messages.list.assert_called_once_with(userId="me", q="is:unread", maxResults=7)
+        run.assert_not_called()
+    else:
+        build.assert_not_called()
+        run.assert_called_once()
+        cmd = run.call_args.args[0]
+        assert json.loads(cmd[cmd.index("--params") + 1]) == {
+            "userId": "me", "q": "is:unread", "maxResults": 7,
+        }
+
+
+@pytest.mark.parametrize("backend", ["python", "gws"])
+def test_gmail_search_nonempty_and_error_contract(api_module, monkeypatch, capsys, backend):
+    message = {"id": "m1", "threadId": "t1", "snippet": "hello", "labelIds": ["INBOX"],
+               "payload": {"headers": [{"name": "SUBJECT", "value": "Meeting"}]}}
+    service = MagicMock()
+    messages = service.users.return_value.messages.return_value
+    messages.list.return_value.execute.return_value = {"messages": [{"id": "m1"}]}
+    messages.get.return_value.execute.return_value = message
+    monkeypatch.setattr(api_module, "build_service", lambda *args: service)
+    monkeypatch.setattr(api_module, "_gws_binary", lambda: "gws" if backend == "gws" else None)
+    run = MagicMock(side_effect=[
+        subprocess.CompletedProcess([], 0, '{"messages": [{"id": "m1"}]}', ""),
+        subprocess.CompletedProcess([], 0, json.dumps(message), ""),
+    ])
+    monkeypatch.setattr(api_module.subprocess, "run", run)
+    monkeypatch.setattr(sys, "argv", ["google_api.py", "gmail", "search", "is:unread"])
+    api_module.main()
+    assert json.loads(capsys.readouterr().out) == [{
+        "id": "m1", "threadId": "t1", "from": "", "to": "", "subject": "Meeting",
+        "date": "", "snippet": "hello", "labels": ["INBOX"],
+    }]
+    if backend == "python":
+        messages.list.return_value.execute.side_effect = RuntimeError("service unavailable")
+        with pytest.raises(RuntimeError, match="service unavailable"):
+            api_module.main()
+    else:
+        run.side_effect = None
+        run.return_value = subprocess.CompletedProcess([], 9, "", "service unavailable")
+        with pytest.raises(SystemExit) as exc:
+            api_module.main()
+        assert exc.value.code == 9
+    assert capsys.readouterr().out == ""
+
+
 def _tabbed_doc():
     """A Doc with two tabs (one nested), as the Docs API returns with includeTabsContent."""
     def body(text):
