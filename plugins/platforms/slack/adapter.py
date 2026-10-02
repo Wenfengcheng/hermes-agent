@@ -1447,7 +1447,11 @@ class SlackAdapter(BasePlatformAdapter):
             if template:
                 return template.format(file_label=file_label)
         message = str(exc)
-        if "Slack returned HTML instead of media" in message or "non-image data" in message:
+        if "non-image data" in message:
+            return (
+                f"Slack attachment could not be read as an image for {file_label}: "
+                "unsupported image format or invalid image data. Try attaching it as a document.")
+        if "Slack returned HTML instead of media" in message:
             return (
                 f"Slack attachment access failed for {file_label}: Slack returned an HTML/login or non-media response. "
                 "This usually means a scope, auth, or file-permission problem.")
@@ -4780,6 +4784,8 @@ class SlackAdapter(BasePlatformAdapter):
     @staticmethod
     def _slack_file_kind(f: Dict[str, Any], mimetype: str) -> str:
         """image / audio / voice clip / video / document, from mimetype (+ voice-clip heuristics)."""
+        if mimetype.split(";", 1)[0].strip().lower() == "image/svg+xml":
+            return "document"
         for prefix in ("image", "audio"):
             if mimetype.startswith(prefix + "/"):
                 return prefix
@@ -4792,6 +4798,16 @@ class SlackAdapter(BasePlatformAdapter):
     ) -> Optional[Tuple[str, str, str]]:
         """Download+cache one inbound file; ``(cached_path, media_type, text_injection)``
         or None when skipped (oversized/unknown-size document)."""
+        if mimetype.split(";", 1)[0].strip().lower() == "image/svg+xml":
+            # Thread-root recovery can explicitly pass kind="image". SVG is XML,
+            # not a bitmap: keep the shared raster validator and document size gate.
+            document = {**f, "name": f.get("name") or "document.svg"}
+            cached = await self._cache_slack_document(document, url, mimetype, team_id)
+            if cached is None:
+                return None
+            # Downstream routes image/* to vision again; expose the XML document
+            # instead, without rendering or rasterizing untrusted SVG content.
+            return cached[0], "application/xml", cached[2]
         if kind == "image":
             ext = "." + mimetype.split("/")[-1].split(";")[0]
             if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
