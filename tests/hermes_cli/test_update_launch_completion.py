@@ -152,6 +152,56 @@ def test_metadata_query_never_waits_on_source_completion(tmp_path, monkeypatch, 
     assert venv_sync.prepare_launch(root, argv) is None
 
 
+@pytest.mark.parametrize("capped", [False, True], ids=["backoff", "cap"])
+@pytest.mark.parametrize("current", [False, True], ids=["stale", "current"])
+def test_deferred_completion_does_not_relaunch_unchanged_interpreter(
+        tmp_path, monkeypatch, completion_tail, capsys, capped, current):
+    """Skipping repair cannot make another launch of the same Python useful (#132391)."""
+    import pm
+    from hermes_cli import _launchers
+
+    root = _self_checkout(tmp_path, monkeypatch)
+    pending = venv_sync.arm_completion(root)
+    attempts = venv_sync._completion_attempts_path(root)
+    count = (venv_sync.COMPLETION_RETRY_MAX_ATTEMPTS if capped
+             else venv_sync.COMPLETION_RETRY_BACKOFF_ATTEMPTS)
+    attempts.write_text(f"{count}\n", encoding="utf-8")
+    monkeypatch.setattr(pm, "venv_is_current", lambda **kw: current)
+    monkeypatch.setattr(_launchers, "resolve_store_python", lambda _: Path(sys.executable))
+    published = []
+    monkeypatch.setattr(venv_sync, "publish_launchers", lambda root: published.append(root))
+
+    assert venv_sync.prepare_launch(root, ["status"]) is None
+    assert completion_tail == []
+    assert published == []
+    assert pending.is_file()
+    assert attempts.read_text(encoding="utf-8").strip() == str(count)
+    assert capsys.readouterr().err.count("could not be finished automatically") == int(capped)
+
+
+def test_deferred_completion_switches_interpreter_only_once(tmp_path, monkeypatch, completion_tail):
+    """A caller outside the selected runtime still switches, then settles without repair."""
+    import pm
+    from hermes_cli import _launchers
+
+    root = _self_checkout(tmp_path, monkeypatch)
+    pending = venv_sync.arm_completion(root)
+    attempts = venv_sync._completion_attempts_path(root)
+    attempts.write_text(str(venv_sync.COMPLETION_RETRY_MAX_ATTEMPTS), encoding="utf-8")
+    selected = tmp_path / "selected-python"
+    monkeypatch.setattr(pm, "venv_is_current", lambda **kw: False)
+    monkeypatch.setattr(_launchers, "resolve_store_python", lambda _: selected)
+    published = []
+    monkeypatch.setattr(venv_sync, "publish_launchers", lambda root: published.append(root))
+
+    assert venv_sync.prepare_launch(root, ["status"]) == selected
+    monkeypatch.setattr(sys, "executable", str(selected))
+    assert venv_sync.prepare_launch(root, ["status"]) is None
+    assert published == [root]
+    assert completion_tail == []
+    assert pending.is_file()
+
+
 def test_failed_completion_tail_is_retried_without_rebuilding_dependencies(tmp_path, monkeypatch, completion_tail):
     """Dependencies committed, tail failed: the next launch owes the tail only."""
     import pm

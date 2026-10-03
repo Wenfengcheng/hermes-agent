@@ -425,7 +425,10 @@ def prepare_launch(project_root: Path, argv: list[str]) -> Path | None:
     # venv interpreter symlinked to the same binary is still a different
     # interpreter (its own sys.prefix) and must re-exec once.
     same = os.path.normcase(os.path.abspath(python)) == os.path.normcase(os.path.abspath(sys.executable))
-    if not current or not same:
+    # Stale dependencies require a clean restart only if this launch repaired them.
+    # During retry backoff/cap no sync ran; re-entering the same interpreter would
+    # repeat this decision forever while nesting the bootstrap's -c program.
+    if (not current and _may_retry) or not same:
         publish_launchers(root)
         return python
     if owed_to_cli:
