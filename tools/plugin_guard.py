@@ -22,7 +22,7 @@ from tools.plugin_guard_context import (
     is_loopback_continuation, is_loopback_only, is_pip_install_in_prose_literal, is_regex_alternation_token,
     is_self_uninstall_doc, is_test_tree, logical_line, prose_cap)
 from tools.skills_guard import (
-    Finding, ScanResult, SUSPICIOUS_BINARY_EXTENSIONS, _determine_verdict, format_scan_report,
+    Finding, ScanResult, SUSPICIOUS_BINARY_EXTENSIONS, _determine_verdict, _statement_owners, format_scan_report,
     scan_file)
 
 PLUGIN_SCANNER_VERSION = "plugin-guard-v9"
@@ -166,6 +166,12 @@ def _filter_findings(findings: List[Finding], rel_path: str, file_path: Path) ->
     doc_prose = is_doc_prose(rel_path) or is_ci_workflow(rel_path)
     locale_catalog = is_locale_catalog(rel_path)
     lines = _file_lines(file_path) if findings else []
+    owners = _statement_owners(lines) if file_path.suffix.lower() == '.py' else []
+    statements = {}
+    if owners:
+        starts = sorted(set(owners))
+        statements = {start: '\n'.join(lines[start:end])
+                      for start, end in zip(starts, starts[1:] + [len(lines)])}
     out: List[Finding] = []
     for f in findings:
         if is_code and f.pattern_id in CODE_EXEMPT_PATTERN_IDS:
@@ -180,6 +186,8 @@ def _filter_findings(findings: List[Finding], rel_path: str, file_path: Path) ->
         joined = logical_line(lines, f.line - 1) if 0 < f.line <= len(lines) else line
         f.severity = _context_severity(f, rel_path, line, joined, doc_prose or locale_catalog, is_code,
                                        locale_catalog)
+        if 0 < f.line <= len(owners) and is_python_mount_target(f, statements[owners[f.line - 1]], rel_path):
+            f.severity = _at_most(f.severity, 'high')
         if _is_defensive_documentation(f, rel_path):
             f.severity = _comment_severity(f)
         # Last and critical-only: a one-step cap that can never re-raise a finding an
@@ -251,8 +259,6 @@ def _context_severity(f: Finding, rel_path: str, line: str, joined: str, doc_pro
         sev = _at_most(sev, "medium")    # "monero gateway" in a connector index, no miner on the line
     if is_google_installed_app_secret(f, line):
         sev = _at_most(sev, "high")    # public installed-app OAuth client secret, reviewable caution
-    if is_python_mount_target(f, line, rel_path):
-        sev = _at_most(sev, "high")    # destination only; keep installation confirmation
     if is_code and is_pip_install_in_prose_literal(f, line):
         sev = "low"    # "no pip install is needed" in a user-facing message
     return sev

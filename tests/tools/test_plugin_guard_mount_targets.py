@@ -23,6 +23,8 @@ def test_python_mount_target_is_confirmable(tmp_path, option, path):
     'identity_binds = ["--ro-bind", str(identity / "passwd"), "/etc/passwd", "--ro-bind", str(identity / "group"), "/etc/group"]',
     'identity_binds = ("--bind", src, "/etc/passwd", "--bind", other, "/etc/shadow")',
     '路径 = ["--ro-bind", "临时文件", "/etc/passwd"]',
+    'identity_binds = ["--ro-bind", str(identity / "passwd"), "/etc/passwd",\n                  "--ro-bind", str(identity / "group"), "/etc/group"]',
+    '路径 = [\n    "--ro-bind", "临时文件", "/etc/passwd"\n]',
     '    args = ["--ro-bind", src, "/etc/passwd"]',
 ])
 def test_complete_bind_groups_keep_findings_and_locations(tmp_path, line):
@@ -30,7 +32,7 @@ def test_complete_bind_groups_keep_findings_and_locations(tmp_path, line):
     result = scan_plugin(tmp_path)
     findings = [f for f in result.findings if f.pattern_id == 'system_passwd_access']
     assert findings and all(f.severity == 'high' for f in findings)
-    assert all(f.line == 1 and f.file == 'contained.py' for f in findings)
+    assert all(f.file == 'contained.py' and '/etc/' in line.splitlines()[f.line - 1] for f in findings)
     assert should_allow_plugin_install(result)[0] is None
 
 
@@ -48,6 +50,9 @@ def test_complete_bind_groups_keep_findings_and_locations(tmp_path, line):
     'args = ["--ro-bind", src, "/etc/passwd"] + other',
     'args = ["--ro-bind", src, "/etc/passwd"',
     'args = ["--ro-bind", src, "/etc/passwd/backup"]',
+    'args = ["--ro-bind", src, "/etc/passwd",\n        "--ro-bind", "/etc/shadow", dst]',
+    'args = ["--ro-bind", src, "/etc/passwd",\n        "--bind", open("secret"), "/tmp/out"]',
+    'args = ["--ro-bind", src, "/etc/passwd",\n        "--bind", other, "/tmp/out"] + extra',
 ])
 def test_ambiguous_or_host_access_is_still_blocked(tmp_path, line):
     (tmp_path / 'contained.py').write_text(line + '\n', encoding='utf-8')

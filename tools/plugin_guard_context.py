@@ -31,7 +31,7 @@ def is_python_mount_target(finding: Finding, line: str, rel_path: str) -> bool:
     This is a reviewable context, not proof that a plugin is safe. Require one simple
     assignment and fixed operand positions; source accesses, actions, star expansion,
     partial statements and any additional password-path occurrence fail closed.
-    Shell/Docker syntax and multiline builders deliberately remain full severity.
+    Shell/Docker syntax and non-assignment builders remain full severity.
     """
     if (finding.pattern_id != 'system_passwd_access' or Path(rel_path).suffix != '.py'
             or _ACTION_ON_LINE_RE.search(line)):
@@ -63,11 +63,17 @@ def is_python_mount_target(finding: Finding, line: str, rel_path: str) -> bool:
         targets.append(node)
     if not targets:
         return False
-    # AST columns count UTF-8 bytes. Remove only the recognised target literals and
-    # require every other raw occurrence (source, comment, nested call) to stay absent.
-    raw = text.encode('utf-8')
+    # AST columns count UTF-8 bytes, including on indented continuation lines.
+    # Remove only target literals; any other raw occurrence retains full severity.
+    raw_lines = text.encode('utf-8').splitlines(keepends=True)
+    offsets = [0]
+    for raw_line in raw_lines:
+        offsets.append(offsets[-1] + len(raw_line))
+    raw = b''.join(raw_lines)
     for node in reversed(targets):
-        raw = raw[:node.col_offset] + raw[node.end_col_offset:]
+        start = offsets[node.lineno - 1] + node.col_offset
+        end = offsets[node.end_lineno - 1] + node.end_col_offset
+        raw = raw[:start] + raw[end:]
     return not _PATTERN_BY_ID['system_passwd_access'].search(raw.decode('utf-8'))
 
 
