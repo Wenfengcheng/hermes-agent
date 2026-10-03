@@ -257,6 +257,8 @@ def cmd_check_updates(args: Any | None = None) -> None:
     for r in results:
         if r.needs_fixing:
             status = f"[red]needs fixing[/red]\n[dim]{r.needs_fixing}[/dim]"
+        elif r.update_available is True and r.klass == "pip":
+            status = "[cyan]newer on PyPI (informational)[/cyan]\n" + f"[dim]{r.reason}[/dim]"
         elif r.update_available is True:
             status = "[green]update available[/green]"
         elif r.update_available is False:
@@ -269,7 +271,13 @@ def cmd_check_updates(args: Any | None = None) -> None:
     console.print()
     console.print(table)
     console.print()
-    console.print("[dim]Check-only. Apply with: hermes plugins update <name>[/dim]")
+    if any(r.klass != "pip" for r in results):
+        console.print("[dim]Check-only. For catalog/git rows: hermes plugins update <name>[/dim]")
+    if any(r.klass == "pip" for r in results):
+        console.print(
+            "[dim]PyPI rows are informational, not applied by Hermes; "
+            "use the owning package/environment manager. Catalog installs follow the catalog pin.[/dim]"
+        )
 
 
 def dashboard_update_user_plugin(name: str, *, accept_capabilities: bool = False) -> dict[str, Any]:

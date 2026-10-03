@@ -338,7 +338,11 @@ def check_pip_plugins(
                 update_available=update_available,
                 reason=(
                     f"cannot compare PyPI version {latest!r} with installed {current!r}"
-                    if update_available is None else ""
+                    if update_available is None else (
+                        "PyPI comparison is informational; not applied by Hermes. "
+                        "Use the package/environment manager that owns this distribution; "
+                        "catalog installs follow the reviewed catalog pin."
+                    )
                 ),
             )
         )
