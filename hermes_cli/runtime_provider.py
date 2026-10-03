@@ -1097,7 +1097,8 @@ def resolve_runtime_with_fallback(config: Optional[Dict[str, Any]], *, requested
     """``resolve_runtime_provider`` plus resolution-time fallback: ``(runtime, fallback_entry_or_None)``.
 
     Only an ``AuthError`` from the primary (missing/expired credentials, exhausted quota, cooled-down pool)
-    walks ``get_fallback_chain(config)`` in order and returns the first entry that resolves — the single
+    walks ``get_fallback_chain(config)`` in order and returns the first entry that resolves — except a
+    missing external-process executable, whose install/path error propagates without rerouting. This is the single
     resolution-time walker shared by the gateway and oneshot. ``ValueError``/other errors are genuine
     misconfiguration (unknown ``--provider`` ...) and propagate unchanged, so a typo is never silently
     rerouted onto a provider the operator did not ask for. When every entry fails, the *primary* error is
@@ -1109,6 +1110,10 @@ def resolve_runtime_with_fallback(config: Optional[Dict[str, Any]], *, requested
         return resolve_runtime_provider(requested=requested, target_model=target_model,
                                         explicit_base_url=explicit_base_url, explicit_api_key=explicit_api_key), None
     except AuthError as primary_exc:
+        # A missing executable needs an operator install/path repair, not another paid provider.
+        # Preserve the original actionable error; missing fallback executables below still skip.
+        if primary_exc.code == "missing_external_process_cli":
+            raise
         from hermes_cli.fallback_config import effective_runtime_provider, get_fallback_chain, resolve_entry_api_key
         for entry in get_fallback_chain(config):
             provider = (entry.get("provider") or "").strip().lower()
