@@ -365,6 +365,12 @@ DANGEROUS_PATTERNS = [
     # binary are allowed so a flag can't slip past.
     (r'\bdocker(?:-compose|\s+compose)\s+' + _CONTAINER_GLOBAL_FLAGS + r'(restart|stop|kill|down)\b', "docker compose restart/stop/kill/down (container lifecycle)"),
     (r'\bdocker\s+' + _CONTAINER_GLOBAL_FLAGS + r'(restart|stop|kill)\b', "docker restart/stop/kill (container lifecycle)"),
+    # Canonical container removal destroys writable container state, including when prune
+    # names no container. Reuse the whitespace-run grammar for these new rules (#132483,
+    # #130511); keep existing lifecycle/redirect matching unchanged. As with the lifecycle
+    # rules, word boundaries also catch quoted remote payloads (at the cost of prose matches).
+    (r'\b(?:docker|podman)\s+' + _GLOBAL_FLAGS + r'container\s+(?:rm|prune)\b',
+     "docker/podman container rm/prune (container destruction)"),
     # Gateway protection: never start gateway outside systemd management
     (r'gateway\s+run\b.*(&\s*$|&\s*;|\bdisown\b|\bsetsid\b)', "start gateway outside systemd (use 'systemctl --user restart hermes-gateway')"),
     (r'\bnohup\b.*gateway\s+run\b', "start gateway outside systemd (use 'systemctl --user restart hermes-gateway')"),
