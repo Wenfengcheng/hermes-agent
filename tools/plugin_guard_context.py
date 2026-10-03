@@ -10,16 +10,66 @@ does read as instructions. Every function is a pure predicate on (finding, line,
 """
 from __future__ import annotations
 
+import ast
 import base64
 import binascii
 import re
 from pathlib import Path
 from typing import Optional
 
-from tools.skills_guard import _COMPILED_THREAT_PATTERNS, Finding
+from tools.skills_guard import _ACTION_ON_LINE_RE, _COMPILED_THREAT_PATTERNS, Finding
 
 # pattern id -> compiled regex, to locate a finding's token on its full source line.
 _PATTERN_BY_ID = {pid: rx for rx, pid, *_ in _COMPILED_THREAT_PATTERNS}
+
+_BIND_OPTIONS = frozenset({'--bind', '--ro-bind', '--bind-try', '--ro-bind-try'})
+
+
+def is_python_mount_target(finding: Finding, line: str, rel_path: str) -> bool:
+    """Recognise password paths used only as destinations in a Python argv literal.
+
+    This is a reviewable context, not proof that a plugin is safe. Require one simple
+    assignment and fixed operand positions; source accesses, actions, star expansion,
+    partial statements and any additional password-path occurrence fail closed.
+    Shell/Docker syntax and multiline builders deliberately remain full severity.
+    """
+    if (finding.pattern_id != 'system_passwd_access' or Path(rel_path).suffix != '.py'
+            or _ACTION_ON_LINE_RE.search(line)):
+        return False
+    text = line.strip()
+    try:
+        statements = ast.parse(text).body
+    except (SyntaxError, ValueError, RecursionError):
+        return False
+    if len(statements) != 1 or not isinstance(statements[0], ast.Assign):
+        return False
+    statement = statements[0]
+    if not all(isinstance(target, ast.Name) for target in statement.targets):
+        return False
+    if not isinstance(statement.value, (ast.List, ast.Tuple)):
+        return False
+    operands = statement.value.elts
+    if len(operands) % 3 or any(isinstance(node, ast.Starred) for node in operands):
+        return False
+    for option in operands[::3]:
+        if not isinstance(option, ast.Constant) or option.value not in _BIND_OPTIONS:
+            return False
+    targets = []
+    for i, node in enumerate(operands):
+        if not (isinstance(node, ast.Constant) and node.value in ('/etc/passwd', '/etc/shadow')):
+            continue
+        if i % 3 != 2:
+            return False
+        targets.append(node)
+    if not targets:
+        return False
+    # AST columns count UTF-8 bytes. Remove only the recognised target literals and
+    # require every other raw occurrence (source, comment, nested call) to stay absent.
+    raw = text.encode('utf-8')
+    for node in reversed(targets):
+        raw = raw[:node.col_offset] + raw[node.end_col_offset:]
+    return not _PATTERN_BY_ID['system_passwd_access'].search(raw.decode('utf-8'))
+
 
 # One severity step down; ``medium``/``low`` are already informational (verdict-neutral).
 STEP_DOWN = {"critical": "high", "high": "medium"}
