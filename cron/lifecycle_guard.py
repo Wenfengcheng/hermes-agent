@@ -9,6 +9,7 @@ anchored on concrete command identifiers — so they cannot fire on prose. Defen
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -546,11 +547,25 @@ def lifecycle_scan_root_within_budget(text: str) -> bool:
         return False
 
 
-def _budget_exhausted(budget: _LifecycleScanBudget, what: str, depth: int) -> bool:
+def _budget_exhausted(
+    budget: _LifecycleScanBudget, what: str, depth: int, *, text: str,
+    path: Optional[Path] = None,
+) -> bool:
+    # Fingerprint the text already in memory; never reopen a refused file or log a
+    # raw prefix (inline credentials commonly appear at the start of commands).
+    # Chunk encoding so an oversized root does not require another full copy.
+    digest = hashlib.sha256()
+    byte_count = 0
+    for start in range(0, len(text), 65536):
+        chunk = text[start:start + 65536].encode("utf-8", errors="replace")
+        digest.update(chunk)
+        byte_count += len(chunk)
     logger.warning(
         "lifecycle guard scan budget exhausted (%s at depth %d); "
-        "failing closed — see _MAX_LIFECYCLE_SCAN_* in cron/lifecycle_guard.py",
-        what, depth,
+        "failing closed — see _MAX_LIFECYCLE_SCAN_* in cron/lifecycle_guard.py; "
+        "sha256=%s bytes=%d lines=%d path=%r",
+        what, depth, digest.hexdigest(), byte_count, text.count("\n") + 1,
+        str(path) if path is not None else None,
     )
     budget.refusal = f"the scan budget was exhausted ({what} at depth {depth})"
     return True
@@ -1089,22 +1104,23 @@ def _read_script_for_scanning(script_path: str) -> tuple[str, Optional[str]]:
 def _contains_unsafe_gateway_action(
     command: str, *, cwd: Optional[str], depth: int, visited: set[Path], budget: _LifecycleScanBudget,
     read_remote_script: Optional[_ReadRemoteScriptFn] = None, executed: bool = True,
+    source_path: Optional[Path] = None,
 ) -> bool:
     """``executed=False`` means *command* is the content of a file that is only MENTIONED in inert
     (masked) text: it is still scanned for a literal lifecycle command, but "could not scan" (budget,
     depth, size, device, live SQLite, cloud) is "nothing to scan" there, never a block (#113944)."""
     # Charge BEFORE _direct_lifecycle_scan: every scan in it tokenizes with shlex.
     if not budget.charge_text(command):
-        return _budget_exhausted(budget, "text", depth) if executed else False
+        return _budget_exhausted(budget, "text", depth, text=command, path=source_path) if executed else False
     if _direct_lifecycle_scan(command):
         return True
     if depth >= _MAX_REFERENCED_SCRIPT_DEPTH:
         return executed
 
-    def recurse(text: str, cwd: Optional[str], executed: bool) -> bool:
+    def recurse(text: str, cwd: Optional[str], executed: bool, path: Optional[Path] = source_path) -> bool:
         return _contains_unsafe_gateway_action(
             text, cwd=cwd, depth=depth + 1, visited=visited, budget=budget,
-            read_remote_script=read_remote_script, executed=executed,
+            read_remote_script=read_remote_script, executed=executed, source_path=path,
         )
 
     # The walks below must see the same masked view `_direct_lifecycle_scan` sees (#110422): a
@@ -1141,7 +1157,7 @@ def _contains_unsafe_gateway_action(
             continue
         if not budget.charge_path():
             if candidate_executed:
-                return _budget_exhausted(budget, "paths", depth)
+                return _budget_exhausted(budget, "paths", depth, text=command, path=script_path)
             break  # remaining candidates are all mentions
         visited.add(resolved)
         # Never read more than the walk can still afford to tokenize; a file larger than the
@@ -1156,7 +1172,7 @@ def _contains_unsafe_gateway_action(
             # local read — sanitize identically (binary skip + size fail-closed).
             if not budget.charge_remote_read():
                 if candidate_executed:
-                    return _budget_exhausted(budget, "remote reads", depth)
+                    return _budget_exhausted(budget, "remote reads", depth, text=command, path=script_path)
                 break
             script_text, unsafe = _sanitize_remote_script_text(
                 read_remote_script(str(script_path)), max_bytes=budget.bytes_remaining
@@ -1172,7 +1188,7 @@ def _contains_unsafe_gateway_action(
         if not script_text:
             continue
         # Relative references inside a script resolve against that script's directory, not the cwd.
-        if recurse(script_text, _resolve_script_directory(str(resolved)) or cwd, candidate_executed):
+        if recurse(script_text, _resolve_script_directory(str(resolved)) or cwd, candidate_executed, script_path):
             return True
     return False
 
@@ -1265,7 +1281,7 @@ def check_gateway_lifecycle(prompt: Optional[str], script: Optional[str] = None)
         # embedded in a .py script is still blocked. See #77131, #78398.
         budget = _LifecycleScanBudget()
         if not budget.charge_text(combined):
-            unsafe = _budget_exhausted(budget, "text", 0)
+            unsafe = _budget_exhausted(budget, "text", 0, text=combined, path=resolved_script)
             refusal = budget.refusal
         else:
             unsafe = _lifecycle_command_scan_with_data_exemption(combined)
