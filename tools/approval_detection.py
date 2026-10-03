@@ -189,6 +189,16 @@ def detect_hardline_command(command: str) -> tuple:
     """Check hardline patterns (NEVER bypassable, even in YOLO) -> (is_hardline, description)."""
     if _command_parser_limit_exceeded(command):
         return (True, _PARSER_LIMIT_DESCRIPTION)
+    # A literal function name is not an invocation. Mask only its original
+    # token: normalizing first would also exempt executable names containing
+    # quoted parentheses. Bodies and later calls must still reach every rule.
+    definitions = sorted(
+        (start, end, " " * (end - start))
+        for start, end, word in _iter_shell_command_word_spans(command)
+        if word in {"shutdown", "reboot", "halt", "poweroff"}
+        and re.compile(r'[ \t]*\([ \t\r\n]*\)').match(command, end)
+    )
+    command = _splice(command, definitions)
     # The malformed-quoting verdict needs the author's quote state. Normalization strips escapes
     # (`\"` -> `"`), so a shell-valid pattern like `grep -o "[^\"]*"` lexed as unterminated and was
     # reported as a hardline block (118 of 125 hardline blocks in one week of real use, every one a
