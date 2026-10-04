@@ -1452,7 +1452,11 @@ class GatewayShutdownMixin:
         from hermes_constants import get_default_hermes_root
 
         home = watcher_env.get("HERMES_HOME")
-        is_host = bool(home) and Path(home).resolve() == get_default_hermes_root().resolve()
+        try:
+            is_host = bool(home) and Path(home).resolve() == get_default_hermes_root().resolve()
+        except (OSError, RuntimeError):
+            # Preserve the existing restart attempt if identity cannot be proven.
+            is_host = False
         selector = ["--profile", "default"] if is_host else []
         return [*hermes_cmd, *selector, "gateway", "restart"]
 

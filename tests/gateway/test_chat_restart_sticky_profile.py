@@ -71,3 +71,22 @@ def test_restart_argv_preserves_resolved_launcher_and_environment(tmp_path, monk
     assert result[len(cmd):] == (['--profile', 'default'] if home_kind == 'host' else []) + ['gateway', 'restart']
     assert env == original_env
     assert cmd == ['python with spaces', '-m', 'hermes_cli.main']
+
+
+@pytest.mark.parametrize('error', [OSError('unavailable path'), RuntimeError('symlink loop')])
+def test_restart_argv_preserves_fallback_when_identity_cannot_be_resolved(monkeypatch, error):
+    from gateway.run_shutdown import GatewayShutdownMixin
+
+    def fail(*args, **kwargs):
+        raise error
+
+    caught = None
+    result = None
+    with monkeypatch.context() as scoped:
+        scoped.setattr(Path, 'resolve', fail)
+        try:
+            result = GatewayShutdownMixin._detached_restart_argv(['hermes'], {'HERMES_HOME': 'unknown'})
+        except (OSError, RuntimeError) as exc:
+            caught = exc
+    assert caught is None, 'identity lookup must not abort the fallback restart'
+    assert result == ['hermes', 'gateway', 'restart']
