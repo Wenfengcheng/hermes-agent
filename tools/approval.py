@@ -1116,16 +1116,24 @@ def request_tool_approval(tool_name: str, reason: str, *, rule_key: str = "", ap
     if not rule_key:
         rule_key = f"{tool_name}:{hashlib.sha256(description.encode('utf-8')).hexdigest()[:12]}"
     subject = f"Tool '{tool_name}' requires approval ({description})"
+    no_human_message = (
+        f"BLOCKED: {subject} but no interactive user or gateway is present to approve it. "
+        "A plugin flagged this action for human confirmation. Do not retry the same action "
+        "through a different tool or route, or change approval settings to bypass this block. "
+        "Ask the user for confirmation before proceeding."
+    )
     return _run_approval_gate(
         # Namespaced so plugin-rule approvals share the allowlist machinery without ever colliding with a real
         # command pattern key; the display target is a synthetic label for the display/allowlist layer.
         pattern_key=f"plugin_rule:{rule_key}", description=description,
         display_target=f"<{tool_name}> (plugin approval rule)", approval_callback=approval_callback,
-        subject=subject, advice="Find an alternative approach.",
+        subject=subject,
+        cron_deny_message=f"{no_human_message} This is a cron job.",
+        single_query_deny_message=f"{no_human_message} This is a single-query session.",
+        unattended_deny_message=f"{no_human_message} This is an unattended platform.",
         autoapprove_log_prefix=f"plugin-escalated tool call '{tool_name}' in non-interactive non-gateway context",
         fail_closed_when_no_human=True,
-        no_human_block_message=(f"BLOCKED: {subject} but no interactive user or gateway is present "
-                                "to approve it. A plugin flagged this action for human confirmation."),
+        no_human_block_message=no_human_message,
     )
 
 
