@@ -192,6 +192,7 @@ _LONG_HANDLERS = frozenset({
 
 _rpc_pool_workers = max(2, env_int("HERMES_TUI_RPC_POOL_WORKERS", 8))
 _pool = concurrent.futures.ThreadPoolExecutor(max_workers=_rpc_pool_workers, thread_name_prefix="tui-rpc")
+_rpc_pool_slots = threading.BoundedSemaphore(_rpc_pool_workers)
 atexit.register(lambda: _pool.shutdown(wait=False, cancel_futures=True))
 
 # Exact in-memory session record executing on the current turn thread — unlike a public session id,

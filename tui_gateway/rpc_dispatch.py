@@ -66,6 +66,17 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
         # Reserve BEFORE enqueueing: a queued handler has accepted work even though no worker runs yet.
         if not retirement.acquire():
             return _err(req.get("id"), 5035, "backend is retiring; reconnect to continue")
+        # Do not accept work that can only queue behind occupied workers: after a
+        # client timeout it could still run and mutate state without a waiting caller.
+        slots = _rpc_pool_slots
+        if not slots.acquire(blocking=False):
+            retirement.release()
+            return _err(req.get("id"), 5037, "RPC workers are busy; retry when capacity is available")
+
+        def release_admission(_future=None):
+            slots.release()
+            retirement.release()
+
         try:
             ctx = contextvars.copy_context()  # the pool worker must see the bound transport
             owner = normalized[2].get("owner")
@@ -81,10 +92,10 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
                     t.write(resp)
             future = _pool.submit(lambda: ctx.run(run))
         except BaseException:
-            retirement.release()
+            release_admission()
             raise
         # Also releases cancelled queued futures; the worker's own finally would never execute.
-        future.add_done_callback(lambda _: retirement.release())
+        future.add_done_callback(release_admission)
         return None
     finally:
         reset_transport(token)
