@@ -331,7 +331,7 @@ async def test_windows_detached_restart_scrubs_gateway_marker(monkeypatch, tmp_p
 
     assert len(popen_calls) == 1
     cmd, kwargs = popen_calls[0]
-    assert cmd[-3:] == ["hermes", "gateway", "restart"]
+    assert cmd[-5:] == ["hermes", "--profile", "default", "gateway", "restart"]
     assert kwargs["env"].get("_HERMES_GATEWAY") is None
     # The watcher is an installation-bound command: PM's bootstrap selects the
     # dependency generation at child start, no venv is captured in its env.
@@ -383,7 +383,7 @@ async def test_windows_detached_restart_watcher_keeps_console_python(monkeypatch
     assert len(popen_calls) == 1
     cmd, kwargs = popen_calls[0]
     assert cmd[0] == r"C:\venv\Scripts\python.exe"
-    assert cmd[-3:] == ["hermes", "gateway", "restart"]
+    assert cmd[-5:] == ["hermes", "--profile", "default", "gateway", "restart"]
     assert kwargs["creationflags"] == 0x08000200
 
 
