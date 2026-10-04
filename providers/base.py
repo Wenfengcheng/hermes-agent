@@ -91,6 +91,10 @@ class ProviderProfile:
     # (e.g. Xiaomi MiMo, which returns 400 "text is not set").
     supports_vision_tool_messages: bool = True
 
+    # Transport-specific exceptions; an unknown/unspecified wire keeps the
+    # provider-wide default. Model vision capability is still checked separately.
+    supports_vision_tool_messages_by_api_mode: dict[str, bool] = field(default_factory=dict, kw_only=True)
+
     # True only when this provider's Chat Completions endpoint explicitly
     # documents ``prompt_cache_key`` as an accepted request body field.  This
     # is deliberately opt-in: many OpenAI-compatible endpoints reject unknown

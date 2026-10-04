@@ -531,7 +531,14 @@ def _profile_rejects_tool_media(provider: str, model: str = "") -> bool:
     """
     try:
         from providers import routed_model_rejects_vision_tool_messages
-        return routed_model_rejects_vision_tool_messages(provider, model)
+        from agent.auxiliary_client import _RUNTIME_MAIN_CONTEXT
+        runtime = _RUNTIME_MAIN_CONTEXT.get() or {}
+        # A capture caller can ask about a different route. Never lend that
+        # route the current turn's transport exception (or read process env).
+        same_route = (runtime.get("provider") == str(provider or "").strip().lower()
+                      and runtime.get("model") == str(model or "").strip())
+        return routed_model_rejects_vision_tool_messages(
+            provider, model, api_mode=runtime.get("api_mode", "") if same_route else "")
     except Exception:
         return False
 

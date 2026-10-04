@@ -185,7 +185,7 @@ def get_provider_profile(name: str) -> ProviderProfile | None:
     return profile
 
 
-def routed_model_rejects_vision_tool_messages(provider: str, model: str) -> bool:
+def routed_model_rejects_vision_tool_messages(provider: str, model: str, *, api_mode: str = "") -> bool:
     """Whether an active route or its aggregator-targeted model rejects image tool parts.
 
     Routing aggregators such as ``openrouter`` send vendor-prefixed model IDs
@@ -196,8 +196,11 @@ def routed_model_rejects_vision_tool_messages(provider: str, model: str) -> bool
     """
     provider_name = str(provider or "").strip().lower()
     profile = get_provider_profile(provider_name)
-    if profile is not None and profile.supports_vision_tool_messages is False:
-        return True
+    if profile is not None:
+        support = profile.supports_vision_tool_messages_by_api_mode.get(
+            api_mode, profile.supports_vision_tool_messages)
+        if support is False:
+            return True
     # Routing aggregators accept a ``vendor/model`` identifier while the request is sent
     # to the aggregator; the target provider can have stricter message-shape support than
     # the aggregator's generic OpenAI-compatible transport profile.

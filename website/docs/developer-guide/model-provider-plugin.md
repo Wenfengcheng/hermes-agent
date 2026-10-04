@@ -115,6 +115,17 @@ Full definition in `providers/base.py`. The most useful ones:
 | `unsupported_response_formats` | `tuple` | `response_format` types the API rejects outright; auxiliary requests omit them instead of paying a guaranteed 400 (DeepSeek: `("json_schema",)`) |
 | `default_aux_model` | str | Cheap model for auxiliary tasks (compression, vision, summarization) |
 
+### Tool-result images on different transports
+
+`supports_vision_tool_messages` defaults to `True`; set it to `False` when a
+provider rejects image parts in tool results. A provider serving multiple API
+surfaces can declare keyword-only `supports_vision_tool_messages_by_api_mode`,
+for example `{"codex_responses": True}` alongside a `False` default. The active
+route's resolved API mode selects the exception; missing or unknown modes keep
+the default. This does not declare the model vision-capable or override the
+user's auxiliary-vision selection. An aggregator target's veto remains in force:
+the aggregator's API mode does not identify the target's upstream wire.
+
 ## Declaring model capabilities
 
 Hermes resolves per-model capabilities (`supports_reasoning`, `supports_vision`,

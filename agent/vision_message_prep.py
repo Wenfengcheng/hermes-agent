@@ -150,6 +150,7 @@ class VisionMessagePrepMixin:
             return not routed_model_rejects_vision_tool_messages(
                 (getattr(self, "provider", "") or "").strip(),
                 (getattr(self, "model", "") or "").strip(),
+                api_mode=getattr(self, "api_mode", "") or "",
             )
         except Exception:
             pass

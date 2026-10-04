@@ -131,6 +131,9 @@ opencode_go = OpenCodeGoProfile(
     # and the rejected row stays in history so every later call dies too. Images in user
     # messages are fine, so vision itself keeps working via the text-summary downgrade.
     supports_vision_tool_messages=False,
+    # /responses accepts input_image in function_call_output (#132837), unlike
+    # the strict-string Chat Completions wire above. Unknown transports stay vetoed.
+    supports_vision_tool_messages_by_api_mode={"codex_responses": True},
 )
 
 register_provider(opencode_zen)
