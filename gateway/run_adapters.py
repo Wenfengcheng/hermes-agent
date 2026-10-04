@@ -887,20 +887,22 @@ class GatewayAdapterLifecycleMixin:
             ))
             task.add_done_callback(self._late_failure_callback("planned-restart notification replay failed"))
 
+    def _publish_connected_adapter_status(self, status_key: str, adapter) -> None:
+        """Publish installed-adapter health without promoting a degraded receive path."""
+        degraded = getattr(adapter, "send_path_degraded", False)
+        self._update_platform_runtime_status(
+            status_key, platform_state="retrying" if degraded else "connected", error_code=None,
+            error_message=adapter.DEGRADED_STATUS_MESSAGE if degraded else None,
+            needs_attention=False, retrying_since=None,
+        )
+
     async def _install_reconnected_adapter(self, platform, adapter) -> None:
         """Publish a freshly reconnected primary adapter and replay what it missed while down."""
         self._publish_primary_adapter(platform, adapter)
         self.delivery_router.adapters = self.adapters
         del self._failed_platforms[platform]
-        # connect() returning True does not mean the receive path is confirmed -- Telegram's degraded
-        # reconnect returns True so the gateway stays up while its own ladder retries. Stamping "connected"
-        # here would undo the adapter's accurate status.
+        self._publish_connected_adapter_status(platform.value, adapter)
         _degraded = adapter.send_path_degraded
-        self._update_platform_runtime_status(
-            platform.value, platform_state="retrying" if _degraded else "connected", error_code=None,
-            error_message=adapter.DEGRADED_STATUS_MESSAGE if _degraded else None,
-            needs_attention=False, retrying_since=None,
-        )
         if _degraded:
             logger.info("⚠ %s reconnected in degraded mode (receive path not yet confirmed)", platform.value)
         else:
@@ -1319,6 +1321,7 @@ class GatewayAdapterLifecycleMixin:
                 self._schedule_secondary_profile_startup_reconnect(profile_name, platform, adapter)
                 continue
             profile_map[platform] = adapter
+            self._publish_connected_adapter_status(f"{profile_name}:{platform.value}", adapter)
             # Restore persisted /voice state for this bot (primary startup and reconnects do too).
             # See #84872.
             self._sync_voice_mode_state_to_adapter(adapter)
@@ -1462,6 +1465,7 @@ class GatewayAdapterLifecycleMixin:
                         profile_map = self._profile_adapters.setdefault(profile_name, {})
                         if platform not in profile_map:
                             profile_map[platform] = adapter
+                            self._publish_connected_adapter_status(f"{profile_name}:{platform.value}", adapter)
                             self._sync_voice_mode_state_to_adapter(adapter)
                             logger.info("✓ %s reconnected (profile: %s)", platform.value, profile_name)
                             await self._redeliver_failed_obligations_for_platform(
