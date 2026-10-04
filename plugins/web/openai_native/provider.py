@@ -85,4 +85,5 @@ class OpenAINativeWebSearchProvider(BaseWebSearchProvider):
             "native",
             "Search runs on the provider side (needs the Codex Responses transport + an openai-codex login); search only, extraction still uses another backend",
             "",
+            post_setup="openai_codex",
         )

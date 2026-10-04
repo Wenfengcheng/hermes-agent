@@ -256,10 +256,10 @@ def _codex_credentials_present() -> bool:
 
 def _post_setup_openai_codex() -> None:
     """Shared Codex/ChatGPT OAuth bootstrap for any picker row that talks to Codex without an API key
-    (image gen today). The rows declare empty env_vars so the sign-in UX lives here. Saves tokens only —
-    never rewrites ``model.provider``: the user picked an image backend, not a chat model (#102144)."""
+    (image generation and native web search). Rows declare empty env_vars so sign-in lives here.
+    Saves tokens only — never rewrites ``model.provider`` for a tool-backend selection (#102144)."""
     if _codex_credentials_present():
-        _print_success("    Image generation will use your existing Codex/ChatGPT OAuth credentials")
+        _print_success("    This tool backend will use your existing Codex/ChatGPT OAuth credentials")
         return
 
     relogin = "hermes auth add openai-codex"
@@ -282,7 +282,7 @@ def _post_setup_openai_codex() -> None:
         choices=["Sign in with ChatGPT/Codex OAuth — browser login",
                  f"Skip — configure later via `{relogin}`"])
     if idx != 0:
-        _print_info("    Codex image generation will remain inactive until you sign in.")
+        _print_info("    This Codex tool backend will remain inactive until you sign in.")
         return
     try:
         creds = _codex_device_code_login()
@@ -290,7 +290,7 @@ def _post_setup_openai_codex() -> None:
     except (Exception, KeyboardInterrupt) as exc:
         _print_warning(f"    Codex sign-in did not complete: {exc}. Run later: {relogin}")
         return
-    _print_success("    Logged in — image generation will use these Codex OAuth credentials")
+    _print_success("    Logged in — this tool backend will use these Codex OAuth credentials")
 
 
 def _xai_credentials_ready() -> bool:
