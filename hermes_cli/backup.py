@@ -640,14 +640,14 @@ def _run_backup_locked(args, hermes_root: Path) -> bool:
             zf, files_to_add, out_path, on_progress=_progress, track_bytes=True,
             on_db_failure=lambda rel: errors.append(f"{rel}: SQLite safe copy failed"),
             on_error=lambda rel, exc: errors.append(f"{rel}: {exc}"))
-        # External memory-provider state never includes ``.db`` files in practice, so no
-        # SQLite snapshot is needed; _write_zip_file still drops a failed partial member.
-        for abs_path, arcname in external_to_add:
-            try:
-                _write_zip_file(zf, abs_path, arcname)
-                total_bytes += abs_path.stat().st_size
-            except (PermissionError, OSError, ValueError) as exc:
-                errors.append(f"{arcname}: {exc}")
+        # Provider-owned SQLite stores need the same WAL-safe snapshot and failure
+        # reporting as files inside Hermes home; a raw main-file copy loses commits.
+        total_bytes += _write_zip_entries(
+            zf, [(path, Path(arcname)) for path, arcname in external_to_add],
+            out_path, on_progress=lambda i: _progress(len(files_to_add) + i),
+            track_bytes=True,
+            on_db_failure=lambda rel: errors.append(f"{rel}: SQLite safe copy failed"),
+            on_error=lambda rel, exc: errors.append(f"{rel}: {exc}"))
     elapsed = time.monotonic() - t0
     zip_size = out_path.stat().st_size
     logger.info("backup phase=archive status=complete duration_ms=%.1f files=%d errors=%d bytes=%d",
