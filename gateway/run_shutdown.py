@@ -1447,6 +1447,16 @@ class GatewayShutdownMixin:
         return watcher_env
 
     @staticmethod
+    def _detached_restart_argv(hermes_cmd: list[str], watcher_env: dict) -> list[str]:
+        """Keep the already-selected host home across the child's sticky-profile preparse."""
+        from hermes_constants import get_default_hermes_root
+
+        home = watcher_env.get("HERMES_HOME")
+        is_host = bool(home) and Path(home).resolve() == get_default_hermes_root().resolve()
+        selector = ["--profile", "default"] if is_host else []
+        return [*hermes_cmd, *selector, "gateway", "restart"]
+
+    @staticmethod
     def _spawn_windows_restart_watcher(hermes_cmd: list, current_pid: int, restart_after_s: float) -> None:
         """Spawn the detached Windows watcher (``python -c``), retrying once without job breakaway."""
         import subprocess
@@ -1468,8 +1478,9 @@ class GatewayShutdownMixin:
         # it owns one hidden console, inherited by the `hermes gateway restart` child, so nothing flashes.
         # See #54220, #56747.
         from hermes_cli._launchers import runtime_command
+        restart_argv = GatewayShutdownMixin._detached_restart_argv(hermes_cmd, watcher_env)
         watcher_argv = runtime_command(project_root,
-            [str(current_pid), str(restart_after_s), *hermes_cmd, "gateway", "restart"],
+            [str(current_pid), str(restart_after_s), *restart_argv],
             code=_WINDOWS_RESTART_WATCHER)
         watcher_python = watcher_argv[0]
         popen_kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=watcher_env)
@@ -1510,17 +1521,19 @@ class GatewayShutdownMixin:
         if sys.platform == "win32":
             GatewayShutdownMixin._spawn_windows_restart_watcher(hermes_cmd, current_pid, restart_after_s)
             return
-        cmd = " ".join(shlex.quote(part) for part in hermes_cmd)
+        watcher_env = GatewayShutdownMixin._restart_watcher_env()
+        restart_argv = GatewayShutdownMixin._detached_restart_argv(hermes_cmd, watcher_env)
+        cmd = " ".join(shlex.quote(part) for part in restart_argv)
         shell_cmd = (
             f"deadline=$(( $(date +%s) + {int(restart_after_s)} )); "
             f"while kill -0 {current_pid} 2>/dev/null && [ $(date +%s) -lt $deadline ]; do sleep 0.2; done; "
-            f"{cmd} gateway restart"
+            f"{cmd}"
         )
         setsid_bin = shutil.which("setsid")
         argv = [setsid_bin, "bash", "-lc", shell_cmd] if setsid_bin else ["bash", "-lc", shell_cmd]
         subprocess.Popen(
             argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            env=GatewayShutdownMixin._restart_watcher_env(), start_new_session=True,
+            env=watcher_env, start_new_session=True,
         )
 
     def _wedged_agent_count(self) -> int:
