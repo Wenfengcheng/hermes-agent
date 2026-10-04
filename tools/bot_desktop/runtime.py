@@ -314,13 +314,11 @@ _ALLOC_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR") or Path.home() / ".cache") 
 
 @contextlib.contextmanager
 def _flocked(path: Path):
-    import fcntl  # windows-footgun: ok — Linux-only runtime (is_supported_host gates start)
-    with open(path, "a+", encoding="utf-8") as fh:  # windows-footgun: ok — Linux-only runtime
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-        try:
-            yield fh
-        finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    # The desktop may run in a Linux sandbox while this lock lives on Windows.
+    from pm.filesystem import lock_fd
+    with open(path, "a+", encoding="utf-8") as fh:
+        lock_fd(fh.fileno(), wait=True)
+        yield fh  # Closing the handle releases the lock, including on exceptions.
 
 
 def _pick_display() -> int:
