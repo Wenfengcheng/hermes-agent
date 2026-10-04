@@ -167,6 +167,22 @@ def _check_mcp_security(should_fix: bool, f: Finding) -> None:
         check_ok("No suspicious MCP stdio commands")
 
 
+def _has_custom_provider_credentials(config_path) -> bool:
+    """Recognize config-backed keys without probing providers or executing key commands."""
+    from hermes_cli.config import get_compatible_custom_providers, get_env_value
+    from hermes_cli.config_effective import load_user_config_effective
+
+    cfg = load_user_config_effective(config_path)
+    for entry in get_compatible_custom_providers(cfg):
+        inline = entry.get("api_key", "").strip()
+        if inline and "${" not in inline:
+            return True
+        key_env = entry.get("key_env") or entry.get("api_key_env")
+        if key_env and str(get_env_value(key_env) or "").strip():
+            return True
+    return False
+
+
 @doctor_check()
 def _check_env_file(should_fix: bool, f: Finding) -> None:
     """Managed scope plus ~/.hermes/.env presence and provider credentials."""
@@ -180,7 +196,11 @@ def _check_env_file(should_fix: bool, f: Finding) -> None:
             content = env_path.read_text(encoding="utf-8-sig")
         except UnicodeDecodeError:
             content = env_path.read_text(encoding="latin-1")
-        if not check_bool(_has_provider_env_config(content), "API key or custom endpoint configured", f"No API key found in {_DHH}/.env"):
+        configured = _has_provider_env_config(content)
+        if not configured:
+            with warn_on_error("Could not check custom provider credentials"):
+                configured = _has_custom_provider_credentials(HERMES_HOME / "config.yaml")
+        if not check_bool(configured, "API key or custom endpoint configured", f"No API key found in {_DHH}/.env or custom provider config"):
             f.issues.append("Run 'hermes setup' to configure API keys")
     elif (PROJECT_ROOT / '.env').exists():  # project root as fallback
         check_ok(".env file exists (in project directory)")
