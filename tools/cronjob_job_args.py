@@ -480,17 +480,21 @@ def _format_job(job: Dict[str, Any]) -> Dict[str, Any]:
     skills = _canonical_skills(job.get("skill"), job.get("skills"))
     job_id = str(job.get("id") or "unknown")
     name = str(job.get("name") or prompt[:50] or (skills[0] if skills else "") or job_id or "cron job")
+    # These describe the next execution, not dormant pins retained in storage.
+    # A script-only job never resolves a model; keep its saved route for a later
+    # switch back to agent mode without advertising it as operational metadata.
+    agent_backed = not job.get("no_agent")
     result = {
         "job_id": job_id,
         "name": name,
         "skill": skills[0] if skills else None,
         "skills": skills,
         "prompt_preview": prompt[:100] + "..." if len(prompt) > 100 else prompt,
-        "model": job.get("model"),
-        "provider": job.get("provider"),
+        "model": job.get("model") if agent_backed else None,
+        "provider": job.get("provider") if agent_backed else None,
         # Locked to its own model; unpinned jobs follow cron.model, then the main agent model.
-        "pinned": bool(str(job.get("model") or "").strip()),
-        "base_url": job.get("base_url"),
+        "pinned": agent_backed and bool(str(job.get("model") or "").strip()),
+        "base_url": job.get("base_url") if agent_backed else None,
         "schedule": job.get("schedule_display") or "?",
         "repeat": _repeat_display(job),
         "deliver": job.get("deliver", "local"),
