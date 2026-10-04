@@ -92,6 +92,27 @@ def test_windows_sandbox_error_propagates_and_start_can_retry(sandbox):
     assert sandbox.spawns == 1
 
 
+def test_browser_preflight_starts_sandbox_without_host_browser(sandbox, monkeypatch):
+    from tools import browser_tool_session
+    from tools import interrupt
+
+    monkeypatch.setattr(interrupt, "is_interrupted", lambda: False)
+    assert browser_tool_session._browser_command_preflight() == {"browser_cmd": "agent-browser"}
+    assert sandbox.spawns == 1
+    sandbox.running = False
+    sandbox.failure = RuntimeError("fixture transport failed")
+    result = browser_tool_session._browser_command_preflight()
+    assert result["success"] is False
+    assert "fixture transport failed" in result["error"]
+
+
+def test_explicit_gateway_placement_does_not_start_sandbox(sandbox, monkeypatch):
+    monkeypatch.setattr(placement, "_setting", lambda: "gateway")
+    assert runtime.tool_placement() == placement.GATEWAY
+    assert sandbox.spawns == 0
+    assert not sandbox_host._read_marker()
+
+
 def _peer_can_lock(path):
     result = subprocess.run(
         [sys.executable, "-c", "from pm.filesystem import lock_fd; import sys; "
