@@ -24,9 +24,19 @@ def test_plugin_denial_does_not_recommend_bypassing_confirmation(tmp_path, monke
         "mode": "manual", "single_query_mode": mode, "cron_mode": mode, "unattended_mode": mode,
     }})
     result = approval.request_tool_approval("some_send_tool", "Confirm recipient", rule_key="send-copy")
+    from hermes_cli import plugins
+
+    manager = plugins.PluginManager()
+    manager._hooks["pre_tool_call"] = [lambda **kwargs: {
+        "action": "approve", "message": "Confirm recipient", "rule_key": "send-copy",
+    }]
+    monkeypatch.setattr(plugins, "get_plugin_manager", lambda: manager)
+    block = plugins.resolve_pre_tool_block("some_send_tool", {})
     if mode == "approve" and context != "headless":
         assert result["approved"] is True
+        assert block is None
         return
+    assert block is not None and result["message"] in block
     assert result["approved"] is False
     message = result["message"].lower()
     assert "do not" in message and "different" in message
