@@ -95,3 +95,77 @@ async def test_rejected_reconnect_does_not_publish_health(setup_runner, outcome)
         runner._profile_adapters['work'] = {Platform.EMAIL: object()}
     await runner._run_secondary_profile_reconnect('work', Platform.EMAIL)
     assert read_rows(home) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('startup', [True, False])
+async def test_email_connect_installed_status(setup_runner, monkeypatch, startup):
+    """Use the real Email connect/probes and runner timeout/attempt pipeline.
+
+    Only the IMAP/SMTP clients and idle poll wait are local fixtures; no network.
+    """
+    from contextlib import contextmanager
+    from unittest.mock import Mock
+
+    from plugins.platforms.email.adapter import EmailAdapter
+
+    runner, home, secondary = setup_runner
+    (secondary / '.env').write_text(
+        'EMAIL_ADDRESS=work@example.test\nEMAIL_PASSWORD=fixture-only\n'
+        'EMAIL_IMAP_HOST=imap.example.test\nEMAIL_SMTP_HOST=smtp.example.test\n',
+        encoding='utf8',
+    )
+    before = read_rows(home)
+    if not startup:
+        runner._update_platform_runtime_status(
+            'work:email', platform_state='fatal', error_code='email_imap_connect_error',
+            needs_attention=True,
+        )
+    inbox = Mock()
+    inbox.uid.return_value = ('OK', [b'1 2'])
+    smtp = Mock()
+
+    @contextmanager
+    def local_inbox(self):
+        yield inbox
+
+    async def idle_poll(self):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(EmailAdapter, '_inbox', local_inbox)
+    monkeypatch.setattr(EmailAdapter, '_connect_smtp', lambda self: smtp)
+    monkeypatch.setattr(EmailAdapter, '_poll_loop', idle_poll)
+    monkeypatch.setattr(EmailAdapter, '_seen_uids_snapshot', {})
+    runner._create_adapter = lambda platform, config: EmailAdapter(config)
+    runner._configure_profile_adapter = lambda adapter, profile, platform: setattr(
+        adapter, '_runtime_status_platform_key', f'{profile}:{platform.value}')
+    runner._platform_lock_takeover_on_start = False
+    runner._platform_connect_timeout_secs = lambda *args, **kw: 5
+    monkeypatch.setattr('hermes_cli.profiles.get_profile_dir', lambda name: secondary)
+    monkeypatch.setattr('hermes_cli.env_loader.hydrate_profile_secret_sources', lambda path: None)
+    monkeypatch.setattr('gateway.config.load_gateway_config', lambda: GatewayConfig(
+        platforms={Platform.EMAIL: PlatformConfig(enabled=True)}))
+    adapter = None
+    try:
+        if startup:
+            assert await runner._start_one_profile_adapters('work', secondary, {}) == 1
+        else:
+            await runner._run_secondary_profile_reconnect('work', Platform.EMAIL)
+        adapter = runner._profile_adapters['work'][Platform.EMAIL]
+        assert isinstance(adapter, EmailAdapter)
+        assert adapter._running
+        assert adapter._poll_task is not None
+        inbox.uid.assert_called_once_with('search', None, 'ALL')
+        smtp.login.assert_called_once_with('work@example.test', 'fixture-only')
+        smtp.quit.assert_called_once_with()
+        rows = read_rows(home)
+        assert rows['work:email']['state'] == 'connected'
+        assert rows['work:email']['error_code'] is None
+        assert rows['work:email']['needs_attention'] is False
+        assert rows['email'] == before['email']
+        assert rows['other:email'] == before['other:email']
+        assert not (secondary / 'gateway_state.json').exists()
+    finally:
+        if adapter is not None:
+            await adapter.disconnect()
+            assert adapter._poll_task is None
