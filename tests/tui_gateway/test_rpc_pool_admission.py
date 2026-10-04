@@ -66,6 +66,60 @@ def test_saturation_rejects_without_running_and_recovers(runtime, monkeypatch):
     assert fence.active_count() == 0
 
 
+@pytest.mark.parametrize("workers", [1, 3])
+def test_websocket_client_receives_busy_and_can_retry(runtime, monkeypatch, workers):
+    from fastapi import FastAPI, WebSocket
+    from fastapi.testclient import TestClient
+    from tui_gateway.ws import handle_ws
+
+    server, fence = runtime
+    monkeypatch.setattr(server, "_rpc_pool_slots", threading.BoundedSemaphore(workers))
+    monkeypatch.setattr(server, "_WS_ORPHAN_REAP_GRACE_S", 0)
+    entered = queue.Queue()
+    release = threading.Event()
+
+    def handler(rid, params):
+        entered.put(rid)
+        assert release.wait(10)
+        return server._ok(rid, {})
+
+    monkeypatch.setitem(server._methods, "test.pool", handler)
+    app = FastAPI()
+
+    @app.websocket("/ws")
+    async def endpoint(ws: WebSocket):
+        await handle_ws(ws)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool, ThreadPoolExecutor(max_workers=1) as reader:
+        monkeypatch.setattr(server, "_pool", pool)
+        with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+            def receive():
+                return reader.submit(ws.receive_json).result(timeout=5)
+
+            assert receive()["params"]["type"] == "gateway.ready"
+            try:
+                for i in range(workers):
+                    ws.send_json({"jsonrpc": "2.0", "id": i, "method": "test.pool", "params": {}})
+                assert {entered.get(timeout=5) for _ in range(workers)} == set(range(workers))
+                ws.send_json({"jsonrpc": "2.0", "id": "overflow", "method": "test.pool", "params": {}})
+                rejected = receive()
+                assert rejected["id"] == "overflow"
+                assert "busy" in rejected["error"]["message"].lower()
+                ws.send_json({"jsonrpc": "2.0", "id": "ping", "method": "gateway.ping", "params": {}})
+                assert receive() == {"jsonrpc": "2.0", "id": "ping", "result": {"ok": True}}
+            finally:
+                release.set()
+            pool.shutdown(wait=True)
+            assert {receive()["id"] for _ in range(workers)} == set(range(workers))
+            assert entered.empty(), "rejected websocket request executed later"
+            assert fence.active_count() == 0
+            with ThreadPoolExecutor(max_workers=workers) as replacement:
+                monkeypatch.setattr(server, "_pool", replacement)
+                ws.send_json({"jsonrpc": "2.0", "id": "retry", "method": "test.pool", "params": {}})
+                assert receive()["id"] == "retry"
+    assert fence.active_count() == 0
+
+
 @pytest.mark.parametrize("outcome", ["empty", "raised", "write_error", "cancelled", "submit_error"])
 def test_every_terminal_path_releases_admission(runtime, monkeypatch, outcome):
     server, fence = runtime
