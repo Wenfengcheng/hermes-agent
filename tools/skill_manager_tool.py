@@ -468,10 +468,13 @@ def _patch_skill(name: str, old_string: str, new_string: str, file_path: str = N
     skill_dir, guard = _locate_for_write(name, "patch")
     if guard:
         return guard
-    target_label = file_path or "SKILL.md"
-    if file_path:
+    target_label = "SKILL.md" if file_path is None else file_path
+    # Only an omitted target selects SKILL.md; an explicit empty path is invalid.
+    if file_path is not None:
         target, err = _resolve_supporting_file(skill_dir, file_path)
         if err:
+            if file_path == "":
+                err["error"] += " Omit file_path to patch SKILL.md, or use a path such as references/guide.md."
             return err
     else:
         target = skill_dir / "SKILL.md"
