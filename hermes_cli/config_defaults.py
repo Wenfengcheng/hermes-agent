@@ -116,6 +116,8 @@ DEFAULT_CONFIG = {
         # A chat turn interrupted by a restart is announced to the user and resumed on their next message;
         # an interrupted cron run is written to jobs.json as a permanent failure that nobody is waiting on,
         # so it must not inherit restart_drain_timeout's 0 (#82161).
+        # API-server requests share this watchdog-clamped floor: an HTTP caller
+        # likewise has no next chat turn to resume on (#132989). 0 opts out.
         "cron_drain_timeout": 30,
         # In-band restart (/restart, SIGUSR1): refuse new work, then wait up to this many seconds
         # for in-flight agents/cron/api runs to finish before stop(). 0 = enter stop() at once. 30
