@@ -13,6 +13,10 @@ class BackupErrorReport:
         self.archive = archive
         self.errors: list[dict[str, str]] = []
         if self.path is not None:
+            from hermes_cli.backup import _RUN_BACKUP_PREFIX
+
+            if self.path.name.lower().startswith(_RUN_BACKUP_PREFIX.lower()) and self.path.suffix.lower() == '.zip':
+                raise ValueError("--error-report must not match the backup retention filename pattern")
             resolved = self.path.resolve()
             if self.path.exists() or self.path.is_symlink():
                 raise ValueError("--error-report must name a new file (existing files are never replaced)")
@@ -34,7 +38,7 @@ class BackupErrorReport:
             "complete": not self.errors,
             "errors": self.errors,
         }
-        # Reports can contain private paths. Stage owner-only, then publish without
+        # Stage with POSIX 0600 (Windows inherits directory ACLs), then publish without
         # overwriting even a destination created concurrently. Unlike replace(),
         # link() fails if the requested name already exists (including symlinks).
         fd, name = tempfile.mkstemp(prefix=".backup-errors-", dir=self.path.parent)

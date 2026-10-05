@@ -87,6 +87,16 @@ def test_report_boundaries_and_dispatch(tmp_path, monkeypatch):
     assert not list(tmp_path.glob('.backup-errors-*'))
 
 
+def test_report_cannot_use_managed_backup_name(tmp_path):
+    import pytest
+    from hermes_cli.backup_error_report import BackupErrorReport
+
+    home = tmp_path / 'home'
+    home.mkdir()
+    with pytest.raises(ValueError, match='retention'):
+        BackupErrorReport(tmp_path / 'hermes-backup-errors.zip', tmp_path / 'backup.zip', home)
+
+
 def test_sqlite_and_external_failures_share_report(tmp_path, monkeypatch):
     from hermes_cli import backup
     home = tmp_path / 'home'

@@ -1125,6 +1125,9 @@ but not policy exclusions, undiscovered paths, or errors that abort the entire a
 The JSON has `schema_version`, `scope`, `archive`, `complete`, and an `errors` array of
 `{path, reason}` objects. An empty selection records `archive: null`; a successful archive
 records an empty error list. Keep the report private: paths and error messages may be sensitive.
+POSIX reports are created with mode 0600; Windows reports inherit the destination directory's
+ACL, so choose a directory restricted to your account. Managed `hermes-backup-*.zip` report
+names are rejected to prevent reports from taking archive retention slots.
 Existing report files, symlinks, and the archive destination are never overwritten. Publication
 requires hard-link support on the report filesystem; failure preserves the ZIP, returns nonzero,
 and skips retention pruning. Use a new report filename for each run. Automatic update backups
