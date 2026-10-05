@@ -29,6 +29,10 @@ def build_backup_parser(subparsers, *, cmd_backup: Callable) -> None:
     backup_parser.add_argument(
         "-l", "--label", help="Label for the snapshot (only used with --quick)")
     backup_parser.add_argument(
+        "--error-report", metavar="PATH",
+        help="Write all selected-file failures to a new private JSON file outside Hermes home "
+             "(full backup only; not a coverage inventory)")
+    backup_parser.add_argument(
         "-k", "--keep", type=_non_negative_keep, default=3, metavar="N",
         help="After a full backup, delete older hermes-backup-*.zip files in the output "
              "directory beyond the newest N (default 3; 0 keeps everything)")

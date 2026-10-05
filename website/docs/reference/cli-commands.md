@@ -1112,11 +1112,23 @@ Create a zip archive of your Hermes configuration, skills, sessions, and data. T
 | `-o`, `--output <path>` | Output path for the zip file (default: `~/hermes-backup-<timestamp>.zip`). |
 | `-q`, `--quick` | Quick snapshot: only critical state files (config.yaml, state.db, .env, auth, cron jobs). Much faster than a full backup. |
 | `-l`, `--label <name>` | Label for the snapshot (only used with `--quick`). |
+| `--error-report <path>` | Save every selected-member failure as JSON, without the console's ten-error cap. Full backup only. Requires a new file outside Hermes home, in an existing directory. |
 | `-k`, `--keep <N>` | After a full backup, delete older `hermes-backup-*.zip` files in the output directory beyond the newest N (default 3; `0` keeps everything). Custom-named zips are never touched. |
 
 The backup uses SQLite's `backup()` API for safe copying, so it works correctly even when Hermes is running (WAL-mode safe).
 
 **Exit status:** `0` only when every selected file landed in the archive. If some files could not be added (`Backup incomplete: …`), the zip is kept so the rest can still be restored, but the command exits `1` — a cron or systemd timer will not report a partial archive as success, and `--keep` pruning is skipped so older complete archives survive. `2` means another backup was already running.
+
+`--error-report` is an opt-in diagnostic, **not a coverage inventory or restore proof**.
+It includes file-read and SQLite-snapshot failures (including external-member write failures),
+but not policy exclusions, undiscovered paths, or errors that abort the entire archive operation.
+The JSON has `schema_version`, `scope`, `archive`, `complete`, and an `errors` array of
+`{path, reason}` objects. An empty selection records `archive: null`; a successful archive
+records an empty error list. Keep the report private: paths and error messages may be sensitive.
+Existing report files, symlinks, and the archive destination are never overwritten. Publication
+requires hard-link support on the report filesystem; failure preserves the ZIP, returns nonzero,
+and skips retention pruning. Use a new report filename for each run. Automatic update backups
+and `--quick` are outside this option's scope.
 
 **What's excluded from the zip:**
 

@@ -610,7 +610,12 @@ def run_backup(args) -> bool:
 
 def _run_backup_locked(args, hermes_root: Path) -> bool:
     """Write a full backup while the cross-process backup slot is held."""
+    from hermes_cli.backup_error_report import BackupErrorReport
     out_path = _resolve_backup_output_path(args.output)
+    try:
+        report = BackupErrorReport(getattr(args, "error_report", None), out_path, hermes_root)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Error: {exc}") from exc
     scan_started = time.monotonic()
     logger.info("backup phase=scan status=started")
     print(f"Scanning {display_hermes_home()} ...")
@@ -620,14 +625,14 @@ def _run_backup_locked(args, hermes_root: Path) -> bool:
     if not files_to_add and not external_to_add:
         logger.info("backup phase=scan status=empty duration_ms=%.1f", (time.monotonic() - scan_started) * 1000)
         print("No files to back up.")
-        return True
+        return report.finish(archive_written=False)
 
     file_count = len(files_to_add) + len(external_to_add)
     logger.info("backup phase=scan status=complete duration_ms=%.1f files=%d",
                 (time.monotonic() - scan_started) * 1000, file_count)
     logger.info("backup phase=archive status=started files=%d", file_count)
     print(f"Backing up {file_count} files ...")
-    errors = []
+    errors = report.errors
     t0 = time.monotonic()
 
     def _progress(i: int) -> None:
@@ -638,8 +643,8 @@ def _run_backup_locked(args, hermes_root: Path) -> bool:
             archive_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         total_bytes = _write_zip_entries(
             zf, files_to_add, out_path, on_progress=_progress, track_bytes=True,
-            on_db_failure=lambda rel: errors.append(f"{rel}: SQLite safe copy failed"),
-            on_error=lambda rel, exc: errors.append(f"{rel}: {exc}"))
+            on_db_failure=lambda rel: report.record(rel, "SQLite safe copy failed"),
+            on_error=report.record)
         # External memory-provider state never includes ``.db`` files in practice, so no
         # SQLite snapshot is needed; _write_zip_file still drops a failed partial member.
         for abs_path, arcname in external_to_add:
@@ -647,7 +652,7 @@ def _run_backup_locked(args, hermes_root: Path) -> bool:
                 _write_zip_file(zf, abs_path, arcname)
                 total_bytes += abs_path.stat().st_size
             except (PermissionError, OSError, ValueError) as exc:
-                errors.append(f"{arcname}: {exc}")
+                report.record(arcname, exc)
     elapsed = time.monotonic() - t0
     zip_size = out_path.stat().st_size
     logger.info("backup phase=archive status=complete duration_ms=%.1f files=%d errors=%d bytes=%d",
@@ -657,17 +662,9 @@ def _run_backup_locked(args, hermes_root: Path) -> bool:
           f"  Original:    {_format_size(total_bytes)}\n"
           f"  Compressed:  {_format_size(zip_size)}\n"
           f"  Time:        {elapsed:.1f}s")
-    if external_to_add:
-        print(f"\n  Included {len(external_to_add)} memory-provider file(s) stored outside {display_hermes_home()}.")
-    if skipped_external:
-        print(f"\n  Skipped {len(skipped_external)} memory-provider path(s) outside your home directory "
-              "(not portable):\n" + "\n".join(f"    {p}" for p in sorted(skipped_external)[:10]))
-    if skipped_dirs:
-        print("\n  Excluded directories:\n" + "\n".join(f"    {d}/" for d in sorted(skipped_dirs)))
-    if errors:
-        _print_capped(f"\n  Archive kept, but {len(errors)} file(s) could not be added:", errors, "  ")
-    else:
-        print(f"\nRestore with: hermes import {out_path.name}")
+    report.print_summary(len(external_to_add), skipped_external, skipped_dirs)
+    if not report.finish(archive_written=True):
+        return False
     # Prune only after a complete archive: a timer hitting the same unreadable file every run must
     # not rotate the last good backups out in favour of incomplete ones.
     keep = getattr(args, "keep", 0)  # 0 / absent: never prune (non-CLI callers)
@@ -2189,6 +2186,8 @@ def prune_quick_snapshots(
 
 def run_quick_backup(args) -> None:
     """CLI entry point for hermes backup --quick."""
+    if getattr(args, "error_report", None):
+        raise SystemExit("Error: --error-report cannot be combined with --quick")
     label = getattr(args, "label", None)
     snap_id = create_quick_snapshot(label=label)
     if snap_id:
