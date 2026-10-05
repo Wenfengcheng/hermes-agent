@@ -36,7 +36,7 @@ def test_placeholder_like_prose_is_not_replaced(prefix):
     assert prepare_spoken_text(text) == f"{expected_prefix} {SPAN}"
 
 
-@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r", "\x1c", "\x1d", "\x1e"])
 def test_phoneme_newlines_become_spaces_not_provider_truncation(newline):
     raw = f"<|phoneme_start|>ah0{newline}m<|phoneme_end|>"
     assert prepare_spoken_text(raw) == "<|phoneme_start|>ah0 m<|phoneme_end|>"
@@ -52,6 +52,16 @@ def test_explicit_cap_never_splits_phoneme_span(cap):
         assert SPAN in result
     if cap is None or cap == 0 or cap >= len(text):
         assert result == text
+
+
+def test_dense_private_use_prose_cannot_destroy_sentinel():
+    prose = "".join(chr(code) for code in range(0xE000, 0xFE0E))
+    assert prepare_spoken_text(prose + " " + SPAN, max_chars=None).endswith(SPAN)
+
+
+def test_many_distinct_spans_restore_without_cascading():
+    text = " ".join(f"<|phoneme_start|>ah{n}<|phoneme_end|>" for n in range(1200))
+    assert prepare_spoken_text(text, max_chars=None) == text
 
 
 def test_plain_text_and_empty_input_keep_existing_cleanup():

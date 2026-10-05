@@ -293,10 +293,14 @@ def prepare_spoken_text(text: str, max_chars: int | None = 4000) -> str:
     spoken = _MD_CODE_BLOCK_RE.sub(" ", strip_nonspoken_blocks(text))
     # Private-use sentinels survive cleanup; HTML unescaping is the only stage
     # that can introduce them, so check that representation for collisions too.
-    prefix = "\ue000"
     used = set(html.unescape(spoken))
-    while prefix in used:
-        prefix = chr(ord(prefix) + 1)
+    # Stay within Unicode private-use planes, never drift into variation
+    # selectors/emoji/whitespace which the cleanup stages intentionally delete.
+    prefix = next((chr(code) for start, end in (
+        (0xE000, 0xF900), (0xF0000, 0xFFFFE), (0x100000, 0x10FFFE)
+    ) for code in range(start, end) if chr(code) not in used), None)
+    if prefix is None:
+        raise ValueError("TTS text exhausts the available pronunciation sentinels")
     held: dict[str, str] = {}
 
     def hold(match: re.Match) -> str:
@@ -304,7 +308,7 @@ def prepare_spoken_text(text: str, max_chars: int | None = 4000) -> str:
         token = f"{prefix}{index}\ue001"
         # Newlines separate phonemes, not sentences. Do not reintroduce them
         # after flattening (some backends stop synthesizing at the first one).
-        held[token] = re.sub(r"[\r\n\v\f\x85\u2028\u2029]+", " ", match.group(0))
+        held[token] = " ".join(match.group(0).splitlines())
         return token
 
     spoken = _PHONEME_SPAN_RE.sub(hold, spoken)
@@ -312,8 +316,8 @@ def prepare_spoken_text(text: str, max_chars: int | None = 4000) -> str:
                  prune_identifier_tokens_for_tts,
                  smooth_whitespace_for_tts, flatten_newlines_for_payload):
         spoken = step(spoken)
-    for token, payload in held.items():
-        spoken = spoken.replace(token, payload)
+    spoken = re.sub(re.escape(prefix) + r"[A-J]+\ue001",
+                    lambda match: held.get(match.group(0), match.group(0)), spoken)
     if max_chars is not None and max_chars > 0 and len(spoken) > max_chars:
         # A caller's cap remains a hard bound, but never cut a control span in half.
         for match in _PHONEME_SPAN_RE.finditer(spoken):
