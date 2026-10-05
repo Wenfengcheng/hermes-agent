@@ -27,7 +27,10 @@ def test_watchdog_can_recover_without_hiding_other_failures(watchdog, capsys):
     args = parser.parse_args(["cron", "doctor", "--exclude", watchdog["id"],
                               "--exclude", watchdog["id"]])
     assert cron_command(args) == 0
-    assert "previous watchdog findings" not in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "previous watchdog findings" not in output
+    assert "Checked 0 active job(s)." in output
+    assert "No active jobs configured." not in output
     # Exclusion is read-only: the normal operator view still reports the failure.
     assert jobs.get_job(watchdog["id"])["last_status"] != "ok"
     assert cron_command(Namespace(cron_command="doctor")) == 1

@@ -700,7 +700,7 @@ def cron_doctor(exclude: Optional[Iterable[str]] = None) -> int:
     findings = [(job, issues) for job in jobs if (issues := _cron_doctor_issues_for_job(job))]
     if not findings:
         print(color("✓ Cron doctor found no issues", Colors.GREEN))
-        note = f"  Checked {len(jobs)} active job(s)." if jobs else "  No active jobs configured."
+        note = f"  Checked {len(jobs)} active job(s)." if active_jobs else "  No active jobs configured."
         print(color(note, Colors.DIM))
         return 0
     issue_count = sum(len(issues) for _, issues in findings)
