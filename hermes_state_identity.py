@@ -96,12 +96,22 @@ def _restore_identity_columns(row: Any, msg: MutableMapping[str, Any]) -> None:
         msg[ABSORBED_MESSAGE_UIDS] = absorbed
 
 
+def _tool_result_uid(row: Any) -> Optional[str]:
+    """Only a durable occurrence identity can join result copies; provider ids may be reused."""
+    uid = row["message_uid"] if "message_uid" in row.keys() else None
+    return uid if row["role"] == "tool" and isinstance(uid, str) and uid else None
+
+
+def _display_row_rank(row: Any) -> Tuple[int, int]:
+    """Keep the original result payload, not its pruned carry; other rows prefer live/newest."""
+    return (0, -row["id"]) if _tool_result_uid(row) else (row["active"], row["id"])
+
+
 def _stable_tool_key(row: Any) -> Optional[Tuple[Any, ...]]:
     """Display-dedupe key of a tool-calling assistant row built from its stable call ids instead of the arguments a
     prune rewrites (#117750: a pruned carried-forward copy must collapse with its durable original). ``None`` for
-    every other row and for an incomplete id set, so the caller keeps the full content key: a tool RESULT row keeps
-    its payload in the key, because folding the archived full output into its pruned stub would drop the original
-    from compacted history and transcript exports, and distinct id-less calls never merge."""
+    every other row and for an incomplete id set. Result rows have their own durable-UID key and
+    original-payload preference; legacy results without a UID retain the content key."""
     if row["role"] != "assistant":
         return None
     calls = _json_or(row["tool_calls"] or "[]", [], "Failed to deserialize tool_calls, falling back to []")

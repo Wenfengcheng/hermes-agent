@@ -161,9 +161,9 @@ class TestDisplayDedupe:
                 f"""
                 INSERT INTO messages
                     (session_id, role, content, tool_call_id, tool_calls,
-                     tool_name, timestamp, active, compacted)
+                     tool_name, timestamp, active, compacted, message_uid)
                 SELECT session_id, role, content, tool_call_id, tool_calls,
-                       tool_name, timestamp, 0, 1
+                       tool_name, timestamp, 0, 1, message_uid
                 FROM messages
                 WHERE session_id = ? AND id IN ({placeholders})
                 """,
@@ -474,6 +474,7 @@ class TestDisplayDedupe:
         conn.execute("DROP TRIGGER IF EXISTS messages_display_identity_delete")
         conn.execute("DROP INDEX IF EXISTS idx_messages_display_page")
         conn.execute("DROP INDEX IF EXISTS idx_messages_display_backfill")
+        conn.execute("DROP INDEX IF EXISTS idx_messages_display_key_backfill")
         conn.execute("DROP INDEX IF EXISTS idx_messages_display_identity")
         conn.execute("DROP INDEX IF EXISTS idx_messages_session_id")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}

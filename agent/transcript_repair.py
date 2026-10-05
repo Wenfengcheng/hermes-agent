@@ -22,7 +22,7 @@ from hermes_state_messages import _MESSAGE_WRITE_COLUMNS
 # which logical message (or which call occurrence) the row is. ``tool_call_uids`` IS payload: it follows
 # ``tool_calls`` (an assistant merge unions both), so it is rewritten with the row.
 _NON_PAYLOAD_COLUMNS = frozenset(
-    {"session_id", "role", "timestamp", "active", "display_identity", MESSAGE_UID, "tool_call_uid"})
+    {"session_id", "role", "timestamp", "active", "display_identity", "display_key_version", MESSAGE_UID, "tool_call_uid"})
 _REPAIR_COLUMNS = tuple(c for c in _MESSAGE_WRITE_COLUMNS if c not in _NON_PAYLOAD_COLUMNS)
 # Columns same-process writers update after our flush (reactions / display-kind stamps, api_content
 # backfill, codex reasoning backfill + checkpoint pruning, platform message ids). They are not part of the

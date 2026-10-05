@@ -473,6 +473,7 @@ CREATE TABLE IF NOT EXISTS messages (
     display_metadata TEXT,
     display_identity BLOB,
     display_order INTEGER,
+    display_key_version INTEGER NOT NULL DEFAULT 0,
     message_uid TEXT,
     absorbed_message_uids TEXT,
     tool_call_uids TEXT,
@@ -641,6 +642,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_display_page
 CREATE INDEX IF NOT EXISTS idx_messages_display_backfill
     ON messages(session_id) WHERE (display_order IS NULL OR display_identity IS NULL)
     AND (active = 1 OR compacted = 1);
+CREATE INDEX IF NOT EXISTS idx_messages_display_key_backfill
+    ON messages(session_id) WHERE (display_order IS NULL OR display_identity IS NULL OR display_key_version = 0)
+    AND (active = 1 OR compacted = 1);
 CREATE INDEX IF NOT EXISTS idx_messages_display_identity
     ON messages(session_id, display_identity, display_order)
     WHERE display_identity IS NOT NULL AND (active = 1 OR compacted = 1);
@@ -692,7 +696,7 @@ BEGIN
 END;
 DROP TRIGGER IF EXISTS messages_display_identity_update;
 CREATE TRIGGER IF NOT EXISTS messages_display_identity_update
-AFTER UPDATE OF role, content, timestamp, tool_call_id, tool_calls, tool_name,
+AFTER UPDATE OF role, content, timestamp, tool_call_id, tool_calls, tool_name, message_uid,
                 display_kind ON messages
 WHEN new.role IS NOT old.role
   OR new.content IS NOT old.content
@@ -700,6 +704,7 @@ WHEN new.role IS NOT old.role
   OR new.tool_call_id IS NOT old.tool_call_id
   OR new.tool_calls IS NOT old.tool_calls
   OR new.tool_name IS NOT old.tool_name
+  OR new.message_uid IS NOT old.message_uid
   OR new.display_kind IS NOT old.display_kind
 BEGIN
     UPDATE messages SET display_identity = NULL, display_order = NULL
