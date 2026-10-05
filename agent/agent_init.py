@@ -850,8 +850,8 @@ def _routed_client_kwargs(agent, fallback_model, _provider_timeout) -> Optional[
     no-provider diagnostic. ``None`` when the chain landed on a MoA preset: the facade is
     already bound and there is no OpenAI client to construct.
     """
-    from agent.auxiliary_client import resolve_provider_client
-    _routed_client, _ = resolve_provider_client(
+    from agent.auxiliary_health import resolve_main_provider_client
+    _routed_client, _ = resolve_main_provider_client(
         agent.provider or "auto", model=agent.model, raw_codex=True)
     if _routed_client is not None:
         from hermes_cli.providers import is_actual_route, normalize_provider
@@ -872,7 +872,7 @@ def _routed_client_kwargs(agent, fallback_model, _provider_timeout) -> Optional[
         try:
             from hermes_cli.fallback_config import resolve_entry_api_key
             _fb_explicit_key = resolve_entry_api_key(_fb)
-            _fb_client, _fb_model = resolve_provider_client(
+            _fb_client, _fb_model = resolve_main_provider_client(
                 _fb["provider"], model=_fb["model"], raw_codex=True,
                 explicit_base_url=_fb.get("base_url"), explicit_api_key=_fb_explicit_key,
             )

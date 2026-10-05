@@ -2,7 +2,32 @@
 import contextlib
 from typing import Any, Optional
 
+from contextvars import ContextVar
+
 from hermes_cli.route_identity import normalize_route_base_url
+
+
+_main_provider_resolution: ContextVar[bool] = ContextVar("main_provider_resolution", default=False)
+
+
+def resolve_main_provider_client(*args, **kwargs):
+    """Resolve main-chat credentials without applying side-task-only quarantine.
+
+    The shared router's auto walk also serves auxiliary tasks. Keep its TTL cache
+    intact for those tasks, including concurrent resolutions in other threads.
+    Credential-pool availability and the configured routing policy still apply.
+    """
+    from agent.auxiliary_client import resolve_provider_client
+
+    token = _main_provider_resolution.set(True)
+    try:
+        return resolve_provider_client(*args, **kwargs)
+    finally:
+        _main_provider_resolution.reset(token)
+
+
+def auxiliary_health_applies() -> bool:
+    return not _main_provider_resolution.get()
 
 def _unhealthy_cache_key(provider: str, base_url: Optional[str] = None) -> Any:
     """Provider-wide key, or endpoint-specific key for an explicit custom endpoint — prefixed with the

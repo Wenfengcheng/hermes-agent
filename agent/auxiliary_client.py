@@ -3210,7 +3210,9 @@ def _mark_provider_unhealthy(
 
 def _is_provider_unhealthy(label: str, base_url: Optional[str] = None) -> bool:
     """True iff this provider endpoint is unhealthy and unexpired; lazily evicts expired entries."""
-    if not label:
+    from agent.auxiliary_health import auxiliary_health_applies
+
+    if not label or not auxiliary_health_applies():
         return False
     key = _unhealthy_cache_key(label, base_url)
     expires_at = _aux_unhealthy_until.get(key)
