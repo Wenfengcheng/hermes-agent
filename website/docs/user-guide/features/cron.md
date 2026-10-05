@@ -518,6 +518,16 @@ text is secret-redacted and truncated before it is written.
 
 `hermes cron doctor` is a read-only health check over every active job. It prints grouped, per-job issues and exits `1` while any finding stands, including historical late or catch-up dispatches (`0` when no findings remain).
 
+A cron watchdog that runs this command should omit its own exact job ID:
+`hermes cron doctor --exclude <watchdog-job-id>`. Otherwise its previous failed
+check becomes a finding in the next check, so the watchdog cannot recover even
+after the other jobs recover. `--exclude` is repeatable, affects only this check,
+and never clears stored failures or changes scheduling. IDs are exact (not names
+or prefixes); the output reports how many active jobs were excluded. An ordinary
+invocation without exclusions still checks the watchdog itself. No scripts are
+inspected or implicitly excluded. Failure summaries show only a bounded first
+line; full stored errors remain available through `hermes cron list`.
+
 A successful catch-up does not clear the lateness warning; the next on-time dispatch does. A watchdog such as `hermes cron doctor || alert` can therefore keep alerting for a full schedule interval after the host wakes, even if the catch-up succeeds.
 
 ```bash

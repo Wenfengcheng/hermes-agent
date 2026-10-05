@@ -657,7 +657,7 @@ def _cron_doctor_issues_for_job(job: Dict[str, Any]) -> List[str]:
     last_status = str(job.get("last_status") or "").strip().lower()
     # "delivery_failed" = the agent run succeeded; the delivery issue below reports it.
     if last_status and last_status not in {"ok", "delivery_failed", "delivery_queued"}:
-        issues.append(f"last run failed: {str(job.get('last_error') or 'unknown error').strip()}")
+        issues.append(f"last run failed: {_short_reason(job.get('last_error') or 'unknown error')}")
     if delivery_err := str(job.get("last_delivery_error") or "").strip():
         issues.append(f"last run finished but the result was not delivered ({_short_reason(delivery_err)}). "
                       f"{_delivery_fix_hint(job)}")
@@ -689,10 +689,14 @@ def _cron_doctor_issues_for_job(job: Dict[str, Any]) -> List[str]:
     return issues
 
 
-def cron_doctor() -> int:
-    """Run read-only cron health checks and return a shell-friendly status."""
+def cron_doctor(exclude: Optional[Iterable[str]] = None) -> int:
+    """Run read-only health checks, optionally omitting exact job IDs for watchdogs."""
     from cron.jobs import list_jobs
-    jobs = list_jobs(include_disabled=False)
+    excluded = set(exclude or ())
+    active_jobs = list_jobs(include_disabled=False)
+    jobs = [job for job in active_jobs if job.get("id") not in excluded]
+    if excluded:
+        print(color(f"  Excluded {len(active_jobs) - len(jobs)} active job(s) by exact ID.", Colors.DIM))
     findings = [(job, issues) for job in jobs if (issues := _cron_doctor_issues_for_job(job))]
     if not findings:
         print(color("✓ Cron doctor found no issues", Colors.GREEN))
@@ -928,7 +932,7 @@ def cron_notepad(args) -> int:
 _CRON_SUBCOMMANDS = {
     "list": lambda a: cron_list(getattr(a, "all", False)) or 0,
     "status": lambda a: cron_status() or 0,
-    "doctor": lambda a: cron_doctor(),
+    "doctor": lambda a: cron_doctor(exclude=getattr(a, "exclude", None)),
     "tick": lambda a: cron_tick(),
     "runs": lambda a: cron_runs(getattr(a, "job_id", None), getattr(a, "limit", 20)) or 0,
     "incidents": lambda a: cron_incidents(a),
