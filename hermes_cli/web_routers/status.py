@@ -499,8 +499,10 @@ async def get_status(profile: Optional[str] = None):
         restart_drain_timeout = await run_in_threadpool(_resolve_restart_drain_timeout)
         auth = _auth_gate_status()
 
+        version_info = get_version_info()
         status = {
-            "version": get_version_info().base_version, "release_date": __release_date__,
+            "version": version_info.base_version, "displayVersion": version_info.display_version,
+            "release_date": __release_date__,
             "config_version": current_ver, "latest_config_version": latest_ver,
             "can_update_hermes": not _dashboard_local_update_managed_externally(),
             "gateway_running": gateway_running, "gateway_state": gateway_state,

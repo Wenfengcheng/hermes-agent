@@ -13,6 +13,14 @@ const backend = (over: Partial<Parameters<typeof resolveVersionStatus>[0]> = {})
   resolveVersionStatus({ applying: false, copy, remote: true, restarting: false, target: 'backend', ...over })
 
 describe('resolveVersionStatus', () => {
+  it('prefers the backend display identity while preserving older backend fallback', () => {
+    expect(backend({ version: '1.2.3', displayVersion: '1.2.3+4' }).label).toBe('backend v1.2.3+4')
+    expect(backend({ version: 'unknown', displayVersion: 'git.abcdef0' }).unknown).toBe(false)
+    for (const displayVersion of [undefined, null, '', 'unknown']) {
+      expect(backend({ version: '1.2.3', displayVersion }).label).toBe('backend v1.2.3')
+    }
+    expect(backend({ version: 'unknown', displayVersion: 'unknown' }).unknown).toBe(true)
+  })
   it('labels a current local client with its distance, keeping the commit for the tooltip', () => {
     const status = client({ sha: 'abc1234', version: '0.4.2+1913.gabc1234' })
 

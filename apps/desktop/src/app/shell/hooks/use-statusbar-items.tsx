@@ -446,7 +446,8 @@ export function useStatusbarItems({
       restarting: backendUpdateApply.stage === 'restart',
       target: 'backend',
       updateAvailable: backendUpdateStatus?.updateAvailable,
-      version: statusSnapshot?.version
+      version: statusSnapshot?.version,
+      displayVersion: statusSnapshot?.displayVersion
     })
 
     return {
@@ -464,6 +465,7 @@ export function useStatusbarItems({
   }, [
     connection?.mode,
     statusSnapshot?.version,
+    statusSnapshot?.displayVersion,
     backendUpdateStatus?.behind,
     backendUpdateStatus?.updateAvailable,
     backendUpdateApply.applying,

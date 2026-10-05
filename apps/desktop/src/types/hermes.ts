@@ -1400,6 +1400,8 @@ export interface PlatformStatus {
 }
 
 export interface StatusResponse {
+  /** Human-readable identity; older backends only provide version. */
+  displayVersion?: string
   shared_profile_warning?: boolean
   active_sessions: number
   config_path: string

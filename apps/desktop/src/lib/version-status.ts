@@ -28,6 +28,8 @@ export interface VersionStatusCopy {
 }
 
 export interface VersionStatusInput {
+  /** Display identity from status discovery, preferred over the base release. */
+  displayVersion?: null | string
   /** True while an apply is in flight (including the restart hand-off). */
   applying: boolean
   /** Latest line from the apply stream — leads the tooltip while applying. */
@@ -67,6 +69,7 @@ export interface VersionStatusResult {
 }
 
 export function resolveVersionStatus({
+  displayVersion,
   applyMessage,
   applying,
   behind = 0,
@@ -79,8 +82,9 @@ export function resolveVersionStatus({
   sha = null,
   target,
   updateAvailable,
-  version: rawVersion = null
+  version: baseVersion = null
 }: VersionStatusInput): VersionStatusResult {
+  const rawVersion = displayVersion && displayVersion !== 'unknown' ? displayVersion : baseVersion
   // The label names the distance past the release; the commit stays in the
   // tooltip and the expanded version details.
   const version: null | string = rawVersion && rawVersion !== 'unknown' ? shortVersion(rawVersion) : null
