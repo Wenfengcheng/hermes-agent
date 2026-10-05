@@ -1068,9 +1068,15 @@ CREATE TABLE IF NOT EXISTS kanban_gc_runs (
     run_at            INTEGER NOT NULL,
     cutoff            INTEGER NOT NULL,
     retention_seconds INTEGER NOT NULL,
-    deleted_count     INTEGER NOT NULL,
-    event_id_ranges   TEXT NOT NULL,
-    task_ids          TEXT NOT NULL
+    deleted_count     INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kanban_gc_event_ranges (
+    run_id         INTEGER NOT NULL,
+    task_id        TEXT NOT NULL,
+    first_event_id INTEGER NOT NULL,
+    last_event_id  INTEGER NOT NULL,
+    PRIMARY KEY (run_id, first_event_id)
 );
 
 CREATE TABLE IF NOT EXISTS task_events (
@@ -4398,32 +4404,40 @@ def gc_events(conn: sqlite3.Connection, *, older_than_seconds: int = 30 * 24 * 3
         "(SELECT id FROM tasks WHERE status IN ('done', 'archived'))"
     )
     with write_txn(conn):
-        # The writer lock keeps the selected set stable until deletion. Stream
-        # ordered IDs into ranges instead of retaining every deleted event body.
-        ranges: list[list[int]] = []
-        task_ids: set[str] = set()
-        count = 0
-        for row in conn.execute(
+        # Keep only one range in Python; alternating retained/deleted IDs must
+        # not require an unbounded list or a single oversized SQLite TEXT value.
+        cursor = conn.execute(
             "SELECT id, task_id FROM task_events WHERE " + predicate + " ORDER BY id", (cutoff,),
-        ):
-            event_id = int(row[0])
-            if ranges and event_id == ranges[-1][1] + 1:
-                ranges[-1][1] = event_id
-            else:
-                ranges.append([event_id, event_id])
-            task_ids.add(row[1])
-            count += 1
-        if not count:
+        )
+        first = cursor.fetchone()
+        if first is None:
             return 0
+        receipt = conn.execute(
+            "INSERT INTO kanban_gc_runs (run_at, cutoff, retention_seconds, deleted_count) "
+            "VALUES (?, ?, ?, 0)", (now, cutoff, retention),
+        )
+        run_id = receipt.lastrowid
+        start = end = int(first[0])
+        task_id = first[1]
+        count = 1
+        insert_range = (
+            "INSERT INTO kanban_gc_event_ranges (run_id, task_id, first_event_id, last_event_id) "
+            "VALUES (?, ?, ?, ?)"
+        )
+        for row in cursor:
+            event_id = int(row[0])
+            if row[1] == task_id and event_id == end + 1:
+                end = event_id
+            else:
+                conn.execute(insert_range, (run_id, task_id, start, end))
+                start = end = event_id
+                task_id = row[1]
+            count += 1
+        conn.execute(insert_range, (run_id, task_id, start, end))
         cur = conn.execute("DELETE FROM task_events WHERE " + predicate, (cutoff,))
         if cur.rowcount != count:
             raise RuntimeError("Kanban GC deleted a different event set than its receipt")
-        conn.execute(
-            "INSERT INTO kanban_gc_runs "
-            "(run_at, cutoff, retention_seconds, deleted_count, event_id_ranges, task_ids) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (now, cutoff, retention, count, json.dumps(ranges), json.dumps(sorted(task_ids))),
-        )
+        conn.execute("UPDATE kanban_gc_runs SET deleted_count=? WHERE id=?", (count, run_id))
     return count
 
 

@@ -1,5 +1,5 @@
 """GC leaves exact, durable deletion evidence rather than an unexplained gap."""
-import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -36,17 +36,34 @@ def test_gc_records_exact_deleted_ids_durably(board):
         assert "kanban_gc_runs" in tables, "GC deleted events without durable first-party evidence"
     with kbc.connect_closing() as conn:
         row = conn.execute("SELECT * FROM kanban_gc_runs").fetchone()
-        ranges = json.loads(row["event_id_ranges"])
+        ranges = conn.execute("SELECT first_event_id, last_event_id FROM kanban_gc_event_ranges WHERE run_id=?", (row["id"],)).fetchall()
         recorded = {i for start, end in ranges for i in range(start, end + 1)}
         assert recorded == expected
         assert row["deleted_count"] == len(expected)
         assert row["run_at"] == 1000
         assert row["cutoff"] == 900
         assert row["retention_seconds"] == 100
-        assert json.loads(row["task_ids"]) == [done]
+        assert {r[0] for r in conn.execute("SELECT task_id FROM kanban_gc_event_ranges")} == {done}
         assert kb.list_events(conn, live)
         assert kb.gc_events(conn, older_than_seconds=0) == 0
         assert conn.execute("SELECT count(*) FROM kanban_gc_runs").fetchone()[0] == 1
+
+
+def test_sparse_sweep_does_not_need_one_large_receipt_value(board):
+    with kbc.connect_closing() as conn:
+        tid = _old_task(conn)
+        with kb.write_txn(conn):
+            for _ in range(600):
+                kb._append_event(conn, tid, "old")
+                kb._append_event(conn, tid, "decomposed")
+            conn.execute("UPDATE task_events SET created_at=0 WHERE kind='old'")
+        # Model the real SQLite single-value ceiling cheaply. Every original
+        # event fits; only the old monolithic receipt JSON exceeds this bound.
+        old_limit = conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 4096)
+        try:
+            assert kb.gc_events(conn, older_than_seconds=100) == 601
+        finally:
+            conn.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, old_limit)
 
 
 def _old_task(conn):
@@ -57,13 +74,12 @@ def _old_task(conn):
     return tid
 
 
-@pytest.mark.parametrize("failed_table", ["kanban_gc_runs", "task_events"])
+@pytest.mark.parametrize("failed_table", ["kanban_gc_runs", "kanban_gc_event_ranges", "task_events"])
 def test_gc_rolls_back_on_write_failure(board, failed_table):
-    import sqlite3
     with kbc.connect_closing() as conn:
         tid = _old_task(conn)
         before = kb.list_events(conn, tid)
-        operation = "INSERT" if failed_table == "kanban_gc_runs" else "DELETE"
+        operation = "DELETE" if failed_table == "task_events" else "INSERT"
         conn.execute(f"CREATE TRIGGER refuse_gc BEFORE {operation} ON {failed_table} "
                      "BEGIN SELECT RAISE(ABORT, 'fixture refusal'); END")
         with pytest.raises(sqlite3.IntegrityError, match="fixture refusal"):
