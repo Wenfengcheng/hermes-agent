@@ -432,6 +432,8 @@ def text_to_speech_tool(
     try:  # shared cleaner: markdown, emoji, think blocks, verifier footer, units, newlines
         from tools.tts_text_normalize import prepare_spoken_text
         text = prepare_spoken_text(text, max_chars=None)
+    except ValueError as exc:
+        return tool_error(f"TTS text preparation failed: {exc}", success=False)
     except Exception:
         text = text.strip()
     if not text:

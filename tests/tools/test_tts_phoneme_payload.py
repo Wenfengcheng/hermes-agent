@@ -64,6 +64,24 @@ def test_many_distinct_spans_restore_without_cascading():
     assert prepare_spoken_text(text, max_chars=None) == text
 
 
+def test_cleanup_value_error_never_falls_back_to_raw_private_text(monkeypatch):
+    from tools import tts_tool, tts_text_normalize
+
+    def unavailable(*args, **kwargs):
+        raise ValueError("pronunciation sentinels unavailable")
+
+    monkeypatch.setattr(tts_text_normalize, "prepare_spoken_text", unavailable)
+    result = json.loads(tts_tool.text_to_speech_tool("<think>private</think>Hello"))
+    assert result["success"] is False
+    assert "private" not in str(result)
+
+
+def test_terminal_payload_newline_is_a_space_before_the_closing_tag():
+    assert prepare_spoken_text("<|phoneme_start|>ah0\n<|phoneme_end|>") == (
+        "<|phoneme_start|>ah0 <|phoneme_end|>"
+    )
+
+
 def test_plain_text_and_empty_input_keep_existing_cleanup():
     assert prepare_spoken_text("") == ""
     assert prepare_spoken_text("**Hi** 2m | 20%") == "Hi 2 metres; 20 percent"
