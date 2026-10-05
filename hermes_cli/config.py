@@ -700,16 +700,16 @@ def _set_nested(config, dotted_key: str, value):
     """Set a value at a dotted key path, creating intermediate dicts on demand.
     Numeric segments index lists; the index must already exist (lists are never grown).
 
-    Guards against #17876: before this fix the code unconditionally replaced any non-dict value (including
-    lists) with ``{}``, silently destroying list-typed config like ``custom_providers`` whenever a caller
-    used an indexed path.
+    Guards against #17876: preserve list-typed config when indexing nested paths.
     Dotted key names (#84064 family): when navigating an existing mapping, an existing literal key equal to
     the dot-join of the next N segments is preferred over blind splitting (see ``_greedy_literal_match``),
     so ``models.grok-4.6.supports_vision`` lands on the real ``grok-4.6`` entry. And when a write WOULD
     create a new intermediate mapping that shadows an existing dotted sibling (``grok-4`` beside
     ``grok-4.5``), it raises ``ValueError`` instead of silently writing a phantom the runtime never reads.
     """
+    from hermes_cli.config_reasoning_paths import validate_reasoning_override_path
     parts = _split_key_path(dotted_key)
+    validate_reasoning_override_path(config, parts)
     current = config
     i = 0
     while i < len(parts):

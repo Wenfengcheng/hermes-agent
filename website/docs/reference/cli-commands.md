@@ -1381,6 +1381,14 @@ dotted sibling (e.g. creating `grok-4` next to an existing `grok-4.6`), the
 command fails with an error instead of silently writing a phantom entry the
 runtime would never read.
 
+`agent.reasoning_overrides` also rejects ambiguous first writes when no dotted
+sibling exists, including with `--force`. For example, create an override with
+`hermes config set 'agent.reasoning_overrides.glm-5\.3-flash' high`.
+Once the model key exists, its unescaped spelling works. Dictionary-valued
+reasoning overrides remain supported: `.enabled` and `.effort` address their
+fields; escape the dot if `enabled` or `effort` is actually part of a new model ID.
+No existing malformed overrides are migrated automatically.
+
 ## `hermes pairing`
 
 ```bash
