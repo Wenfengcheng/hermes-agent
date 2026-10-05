@@ -6,13 +6,14 @@ import pytest
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('via_http', [False, True], ids=['handler', 'http'])
 @pytest.mark.parametrize('base,derived,distance', [
     ('1.2.3', '1.2.3+4.gabcdef0', 4),
     ('1.2.3', '1.2.3', 0),
     ('unknown', 'git.abcdef0', None),
     ('unknown', 'unknown', None),
 ])
-async def test_status_preserves_display_identity(tmp_path, monkeypatch, base, derived, distance):
+async def test_status_preserves_display_identity(tmp_path, monkeypatch, base, derived, distance, via_http):
     from hermes_cli import version_info
     from hermes_cli.web_routers import status
 
@@ -39,7 +40,20 @@ async def test_status_preserves_display_identity(tmp_path, monkeypatch, base, de
     monkeypatch.setattr(status, '_component_health', AsyncMock(return_value={}))
     monkeypatch.setattr(status, '_advisory_pressure', AsyncMock())
 
-    health = await status.get_health()
-    snapshot = await status.get_status()
+    if via_http:
+        import httpx
+        from hermes_cli.web_server import app
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url='http://testserver'
+        ) as client:
+            health_response = await client.get('/api/health')
+            status_response = await client.get('/api/status')
+        assert health_response.status_code == status_response.status_code == 200
+        health = health_response.json()
+        snapshot = status_response.json()
+    else:
+        health = await status.get_health()
+        snapshot = await status.get_status()
     assert snapshot['version'] == health['version'] == base
     assert snapshot.get('displayVersion') == health['displayVersion']
