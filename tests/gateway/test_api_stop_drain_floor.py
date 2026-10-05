@@ -60,7 +60,8 @@ async def test_empty_api_adapter_does_not_wait(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stop_phase_uses_default_background_budget_for_api():
+@pytest.mark.parametrize("floor, expected_timeout", [(None, False), (0.0, True)])
+async def test_stop_phase_uses_default_background_budget_for_api(floor, expected_timeout):
     import time
     from gateway.run_shutdown import GatewayShutdownMixin
 
@@ -73,12 +74,33 @@ async def test_stop_phase_uses_default_background_budget_for_api():
     ctx = GatewayShutdownMixin._StopContext(
         deferred_count=lambda: 0, started_at=time.monotonic()
     )
+    if floor is not None:
+        runner._cron_drain_timeout = floor
     asyncio.get_running_loop().call_soon(release.set)
     try:
         await runner._stop_drain_active_work(runner._restart_drain_timeout, ctx)
     finally:
         release.set()
         await task
-    assert ctx.timed_out is False
+    assert ctx.timed_out is expected_timeout
     assert runner._active_api_run_count() == 0
 
+
+@pytest.mark.asyncio
+async def test_mixed_work_drains_api_then_reports_remaining_chat():
+    runner, _ = make_restart_runner()
+    runner._running_agents = {"chat": object()}
+    api = APIServerAdapter(PlatformConfig(enabled=True))
+    runner.adapters = {Platform.API_SERVER: api}
+    release = asyncio.Event()
+    task = asyncio.create_task(release.wait())
+    api._active_run_tasks["queued"] = task
+    asyncio.get_running_loop().call_soon(release.set)
+    try:
+        snapshot, timed_out = await runner._drain_active_agents(0.0, 2.0)
+        assert runner._active_api_run_count() == 0
+        assert timed_out is True  # stop() must still interrupt the remaining chat
+        assert "chat" in snapshot
+    finally:
+        release.set()
+        await task

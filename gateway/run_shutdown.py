@@ -830,6 +830,8 @@ class GatewayShutdownMixin:
         # caller, like a cron job, cannot resume through a next chat message.
         # Keep deferred chat cleanup on the chat budget; it is not an API run.
         # ``cron_timeout=None`` preserves the original one-argument contract.
+        # As with cron, this is one drain phase: mixed chat work may finish
+        # while API work drains; remaining work is interrupted after the phase.
         started = loop.time()
         deadline = started + timeout
         cron_deadline = started + (timeout if cron_timeout is None else cron_timeout)
