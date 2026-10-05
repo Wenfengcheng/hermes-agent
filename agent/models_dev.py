@@ -152,17 +152,23 @@ def _configured_catalog_provider(
 ) -> Optional[str]:
     """``catalog_provider`` declared on a custom provider's ``providers.<name>`` row (or legacy
     ``custom_providers[]`` entry): the catalogued vendor whose models it resells. None when unset."""
-    name = (provider or "").strip()
-    if name.lower().startswith("custom:"):
-        name = name[len("custom:"):]
-    if not name or name in PROVIDER_TO_MODELS_DEV:
+    key = (provider or "").strip()
+    is_custom = key.lower().startswith("custom:")
+    name = key[len("custom:"):] if is_custom else key
+    if not name or (not is_custom and name in PROVIDER_TO_MODELS_DEV):
         return None
-    provider_config = (
-        _cfg_get("providers", name, default=None, config=config)
-        if config is not None
-        else _cfg_get("providers", name, default=None)
-    )
-    alias = _dict_or_empty(provider_config).get("catalog_provider")
+    # The explicit route key wins; bare-name configs remain a supported fallback.
+    # A custom route named after a vendor is still custom, not that builtin.
+    alias = None
+    for candidate in dict.fromkeys((key, name)):
+        provider_config = (
+            _cfg_get("providers", candidate, default=None, config=config)
+            if config is not None
+            else _cfg_get("providers", candidate, default=None)
+        )
+        alias = _dict_or_empty(provider_config).get("catalog_provider")
+        if alias:
+            break
     if not alias:
         legacy = (
             _cfg_get("custom_providers", default=None, config=config)
