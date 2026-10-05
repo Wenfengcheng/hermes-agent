@@ -77,7 +77,9 @@ def test_oversized_phoneme_span_reports_provider_limit():
         _split_text_for_tts(SPAN, len(SPAN) - 1)
 
 
-def test_registered_tool_passes_phonemes_to_selected_plugin(tmp_path, monkeypatch):
+@pytest.mark.parametrize("span", [SPAN, "<|phoneme_start|>t  ah0\tm<|phoneme_end|>"])
+def test_registered_tool_passes_phonemes_to_selected_plugin(tmp_path, monkeypatch, span):
+    SPAN = span
     from agent import tts_registry
     from agent.tts_provider import TTSProvider
     from tools import tts_tool  # registers the real tool handler

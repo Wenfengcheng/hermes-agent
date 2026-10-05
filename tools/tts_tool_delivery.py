@@ -177,12 +177,20 @@ def _split_text_for_tts(text: str, max_chars: int) -> List[str]:
     """Split text under a provider cap without dropping normalized content."""
     if max_chars <= 0:
         max_chars = FALLBACK_MAX_TEXT_LENGTH
-    normalized = " ".join((text or "").split())
+    from tools.tts_text_normalize import _PHONEME_SPAN_RE
+    # Collapse prose whitespace only; pronunciation payloads remain opaque.
+    parts = []
+    position = 0
+    for span in _PHONEME_SPAN_RE.finditer(text or ""):
+        parts.append(re.sub(r"\s+", " ", text[position:span.start()]))
+        parts.append(span.group(0))
+        position = span.end()
+    parts.append(re.sub(r"\s+", " ", (text or "")[position:]))
+    normalized = "".join(parts).strip()
     if not normalized:
         return []
     if len(normalized) <= max_chars:
         return [normalized]
-    from tools.tts_text_normalize import _PHONEME_SPAN_RE
     if _PHONEME_SPAN_RE.search(normalized):
         chunks: List[str] = []
         remaining = normalized
