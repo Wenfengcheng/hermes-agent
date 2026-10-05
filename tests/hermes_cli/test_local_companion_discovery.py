@@ -36,17 +36,18 @@ def _write_header(path):
 @pytest.mark.parametrize("require_complete", [True, False])
 def test_staging_excludes_companions_without_changing_split_contract(tmp_path, require_complete):
     model = tmp_path / "chat.gguf"
+    drafting = tmp_path / "redrafting-model.gguf"
     mtp_model = tmp_path / "chat-MTP.gguf"
     complete = tmp_path / "chat-split-00001-of-00002.gguf"
     incomplete = tmp_path / "pending-00001-of-00002.gguf"
-    names = [model.name, mtp_model.name, complete.name, "chat-split-00002-of-00002.gguf", incomplete.name,
+    names = [model.name, drafting.name, mtp_model.name, complete.name, "chat-split-00002-of-00002.gguf", incomplete.name,
              *COMPANIONS, "mmproj-split-00001-of-00002.gguf", "mmproj-split-00002-of-00002.gguf"]
     for name in names:
         (tmp_path / name).touch()
     assets = tmp_path / "assets"
     assets.mkdir()
     (assets / "hidden.gguf").touch()
-    expected = {model, mtp_model, complete} | ({incomplete} if not require_complete else set())
+    expected = {model, drafting, mtp_model, complete} | ({incomplete} if not require_complete else set())
     assert set(bootstrap.staged_in(tmp_path, require_complete=require_complete)) == expected
     assert all((tmp_path / name).exists() for name in names)
 

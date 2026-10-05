@@ -28,13 +28,13 @@ def model_id_from_stem(stem: str) -> str:
 def is_companion_filename(filename: str) -> bool:
     """Known projector/codec and draft names, not standalone model candidates.
 
-    Keep local staging consistent with the HF browser's existing draft exclusions.
+    Keep local staging and the HF browser on the same companion boundary.
     This is a filename convention, not an architecture allowlist: unknown model
     families (including models with built-in MTP) remain discoverable.
     """
     name = filename.rsplit("/", 1)[-1].lower()
     return (name.startswith(("mmproj", "dspark", "projector-"))
-            or "-mmproj-" in name or "draft" in name)
+            or "-mmproj-" in name or re.search(r"(?:^|[-_.])draft(?:[-_.]|$)", name) is not None)
 
 
 # ggml tensor type sizes: type_id -> (block_bytes, block_elems). IQ-family verified against
