@@ -1043,7 +1043,13 @@ def _status_404(c: _Ctx) -> Verdict:
     # Bare id the catalogue only knows prefixed → malformed id (NVIDIA NIM "404
     # page not found", #78796). A generic 404 (wrong path, proxy glitch) stays
     # unknown so the real error surfaces instead of a silent misreported fallback.
-    return _V_MODEL_NOT_FOUND if _model_id_missing_known_prefix(c.model_slug, c.provider_slug) else _V_UNKNOWN
+    if _model_id_missing_known_prefix(c.model_slug, c.provider_slug):
+        return _V_MODEL_NOT_FOUND
+    # A provider may explicitly veto replay without identifying the missing
+    # resource. Honor that veto without inventing model fallback or key rotation.
+    if c.headers.get("x-should-retry") == "false":
+        return _v(_R.unknown, retryable=False)
+    return _V_UNKNOWN
 
 
 def _status_429(c: _Ctx) -> Verdict:
