@@ -30,6 +30,9 @@ _MD_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+", flags=re.MULTILINE)
 _MD_HR_RE = re.compile(r"^\s*[-*_]{3,}\s*$", flags=re.MULTILINE)
 _MD_TABLE_PIPE_RE = re.compile(r"\s*\|\s*")
 _URL_RE = re.compile(r"https?://\S+")
+# Only complete pronunciation spans are opaque. General control tags are a
+# separate contract; unmatched markers keep the existing best-effort cleanup.
+_PHONEME_SPAN_RE = re.compile(r"<\|phoneme_start\|>[^<>]*<\|phoneme_end\|>")
 # Local file links ("MEDIA:/Users/me/file.xlsx") are click targets on screen, not
 # speech: voices loop on the hyphenated slug ("eeeeee"). The token is silence; the
 # assistant's prose already says "the files are below". Trailing sentence
@@ -285,12 +288,32 @@ def prepare_spoken_text(text: str, max_chars: int | None = 4000) -> str:
     Pipeline: non-spoken blocks > Markdown > symbols/units > identifier-dense tokens >
     line formatting into sentence pauses > single line (for newline-sensitive providers),
     then ``max_chars``."""
-    spoken = text
-    for step in (strip_nonspoken_blocks, strip_markdown_for_tts, normalize_symbols_for_tts,
+    # Remove non-spoken content before shielding provider pronunciation payloads.
+    # These are phonemes, not prose: even a standalone "m" must not become metres.
+    spoken = _MD_CODE_BLOCK_RE.sub(" ", strip_nonspoken_blocks(text))
+    prefix = "ZZHERMESPHONEMEHOLD"
+    while prefix in spoken:
+        prefix += "Z"
+    held: dict[str, str] = {}
+
+    def hold(match: re.Match) -> str:
+        token = f"{prefix}{len(held)}ZZ"
+        held[token] = match.group(0)
+        return token
+
+    spoken = _PHONEME_SPAN_RE.sub(hold, spoken)
+    for step in (strip_markdown_for_tts, normalize_symbols_for_tts,
                  prune_identifier_tokens_for_tts,
                  smooth_whitespace_for_tts, flatten_newlines_for_payload):
         spoken = step(spoken)
+    for token, payload in held.items():
+        spoken = spoken.replace(token, payload)
     if max_chars is not None and max_chars > 0 and len(spoken) > max_chars:
+        # A caller's cap remains a hard bound, but never cut a control span in half.
+        for match in _PHONEME_SPAN_RE.finditer(spoken):
+            if match.start() < max_chars < match.end():
+                max_chars = match.start()
+                break
         spoken = spoken[:max_chars].rstrip()
     return spoken
 
