@@ -1750,7 +1750,7 @@ class SessionMessagesMixin:
         # The prefix is appended to the live tip's model history instead: do not prepend
         # an original whose logical result is already carried there (possibly pruned).
         tip_keys = {self._display_dedupe_key(row) for row in all_rows
-                    if row["session_id"] == session_id and row["active"] and not self._is_model_only_row(row)}
+                    if row["session_id"] == session_id and row["active"]}
         rows = self._dedupe_display_generations(all_rows)
         ancestor_ids = {int(row["id"]) for row in rows
                         if row["session_id"] != session_id and row["id"] is not None

@@ -36,8 +36,9 @@ def test_pruned_result_display_preserves_original_once(tmp_path, projection):
         db.close()
 
 
+@pytest.mark.parametrize("model_only", [False, True])
 @pytest.mark.parametrize("pruned", [False, True])
-def test_rotation_prefix_does_not_repeat_a_result_carried_by_the_live_tip(tmp_path, pruned):
+def test_rotation_prefix_does_not_repeat_a_result_carried_by_the_live_tip(tmp_path, pruned, model_only):
     db = SessionDB(tmp_path / "rotation.db")
     try:
         db.create_session("parent", source="test")
@@ -53,6 +54,8 @@ def test_rotation_prefix_does_not_repeat_a_result_carried_by_the_live_tip(tmp_pa
         carried = db.get_messages_as_conversation("parent", include_row_ids=True)[2:]
         if pruned:
             carried[2]["content"] = "pruned"
+        if model_only:
+            carried[2]["display_metadata"] = {"model_only": True}
         db.publish_compression_child(parent_session_id="parent", child_session_id="tip",
                                      source="test", messages=carried, require_compression_lease=False)
         model, display = db.get_resume_conversations("tip")
