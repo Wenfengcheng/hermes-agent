@@ -1061,6 +1061,18 @@ CREATE TABLE IF NOT EXISTS task_comments (
     created_at INTEGER NOT NULL
 );
 
+-- GC receipts survive event retention and task deletion. Inclusive ID ranges
+-- describe the exact removed set, not a min/max window that could hide gaps.
+CREATE TABLE IF NOT EXISTS kanban_gc_runs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at            INTEGER NOT NULL,
+    cutoff            INTEGER NOT NULL,
+    retention_seconds INTEGER NOT NULL,
+    deleted_count     INTEGER NOT NULL,
+    event_id_ranges   TEXT NOT NULL,
+    task_ids          TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS task_events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id    TEXT NOT NULL,
@@ -4372,14 +4384,47 @@ def gc_events(conn: sqlite3.Connection, *, older_than_seconds: int = 30 * 24 * 3
 
     ``older_than_seconds=0`` means everything older than now; the CLI maps
     ``--event-retention-days 0`` to "disabled" before calling this.
+
+    Nonempty sweeps commit a ``kanban_gc_runs`` receipt in the SAME transaction:
+    cutoff, retention, count, affected tasks and exact inclusive event-ID ranges.
+    Receipts survive later sweeps and task deletion. This is attribution, not
+    tamper-proof storage: a writer with direct DB access can alter receipts too.
     """
-    cutoff = int(time.time()) - _retention_seconds(older_than_seconds)
+    retention = _retention_seconds(older_than_seconds)
+    now = int(time.time())
+    cutoff = now - retention
+    predicate = (
+        "created_at < ? AND kind != 'decomposed' AND task_id IN "
+        "(SELECT id FROM tasks WHERE status IN ('done', 'archived'))"
+    )
     with write_txn(conn):
-        cur = conn.execute(
-            "DELETE FROM task_events WHERE created_at < ? AND kind != 'decomposed' AND task_id IN "
-            "(SELECT id FROM tasks WHERE status IN ('done', 'archived'))", (cutoff,),
+        # The writer lock keeps the selected set stable until deletion. Stream
+        # ordered IDs into ranges instead of retaining every deleted event body.
+        ranges: list[list[int]] = []
+        task_ids: set[str] = set()
+        count = 0
+        for row in conn.execute(
+            "SELECT id, task_id FROM task_events WHERE " + predicate + " ORDER BY id", (cutoff,),
+        ):
+            event_id = int(row[0])
+            if ranges and event_id == ranges[-1][1] + 1:
+                ranges[-1][1] = event_id
+            else:
+                ranges.append([event_id, event_id])
+            task_ids.add(row[1])
+            count += 1
+        if not count:
+            return 0
+        cur = conn.execute("DELETE FROM task_events WHERE " + predicate, (cutoff,))
+        if cur.rowcount != count:
+            raise RuntimeError("Kanban GC deleted a different event set than its receipt")
+        conn.execute(
+            "INSERT INTO kanban_gc_runs "
+            "(run_at, cutoff, retention_seconds, deleted_count, event_id_ranges, task_ids) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (now, cutoff, retention, count, json.dumps(ranges), json.dumps(sorted(task_ids))),
         )
-    return int(cur.rowcount or 0)
+    return count
 
 
 def gc_worker_logs(*, older_than_seconds: int = 30 * 24 * 3600, board: Optional[str] = None) -> int:
