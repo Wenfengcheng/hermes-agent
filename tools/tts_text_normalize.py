@@ -291,14 +291,20 @@ def prepare_spoken_text(text: str, max_chars: int | None = 4000) -> str:
     # Remove non-spoken content before shielding provider pronunciation payloads.
     # These are phonemes, not prose: even a standalone "m" must not become metres.
     spoken = _MD_CODE_BLOCK_RE.sub(" ", strip_nonspoken_blocks(text))
-    prefix = "ZZHERMESPHONEMEHOLD"
-    while prefix in spoken:
-        prefix += "Z"
+    # Private-use sentinels survive cleanup; HTML unescaping is the only stage
+    # that can introduce them, so check that representation for collisions too.
+    prefix = "\ue000"
+    decoded = html.unescape(spoken)
+    while prefix in decoded:
+        prefix = chr(ord(prefix) + 1)
     held: dict[str, str] = {}
 
     def hold(match: re.Match) -> str:
-        token = f"{prefix}{len(held)}ZZ"
-        held[token] = match.group(0)
+        index = str(len(held)).translate(str.maketrans("0123456789", "ABCDEFGHIJ"))
+        token = f"{prefix}{index}\ue001"
+        # Newlines separate phonemes, not sentences. Do not reintroduce them
+        # after flattening (some backends stop synthesizing at the first one).
+        held[token] = re.sub(r"[\r\n\v\f\x85\u2028\u2029]+", " ", match.group(0))
         return token
 
     spoken = _PHONEME_SPAN_RE.sub(hold, spoken)

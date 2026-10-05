@@ -13,7 +13,7 @@ def test_phoneme_payload_and_delimiters_survive_cleanup():
     assert prepare_spoken_text(f"**Say** {SPAN} at 2m.") == f"Say {SPAN} at 2 metres."
 
 
-@pytest.mark.parametrize("payload", ["", "t ah0 m ey1", "a  b\nc", "&amp; _x_ 20%"])
+@pytest.mark.parametrize("payload", ["", "t ah0 m ey1", "&amp; _x_ 20%"])
 def test_payload_is_opaque_and_repeatable(payload):
     span = f"<|phoneme_start|>{payload}<|phoneme_end|>"
     text = f"Say {span} and {span}."
@@ -26,10 +26,20 @@ def test_phoneme_span_does_not_resurrect_nonspoken_blocks(wrapper):
     assert prepare_spoken_text(wrapper.format(SPAN)) == "Visible."
 
 
-def test_placeholder_like_prose_is_not_replaced():
-    prefix = "ZZHERMESPHONEMEHOLD0ZZ"
+@pytest.mark.parametrize("prefix", [
+    "ZZHERMESPHONEMEHOLD0ZZ", "ZZHERMESPHONEME&#72;OLD0ZZ",
+    "ZZHERMESPHONEME**H**OLD0ZZ", "\ue000A\ue001", "&#57344;A&#57345;",
+])
+def test_placeholder_like_prose_is_not_replaced(prefix):
+    expected_prefix = prepare_spoken_text(prefix)
     text = f"{prefix} {SPAN}"
-    assert prepare_spoken_text(text) == text
+    assert prepare_spoken_text(text) == f"{expected_prefix} {SPAN}"
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_phoneme_newlines_become_spaces_not_provider_truncation(newline):
+    raw = f"<|phoneme_start|>ah0{newline}m<|phoneme_end|>"
+    assert prepare_spoken_text(raw) == "<|phoneme_start|>ah0 m<|phoneme_end|>"
 
 
 @pytest.mark.parametrize("cap", [1, 4, 10, 30, 60, 200, None, 0])
