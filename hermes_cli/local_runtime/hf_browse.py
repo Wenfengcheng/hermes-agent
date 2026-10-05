@@ -90,6 +90,8 @@ def _quant_label(filename: str) -> str:
 def repo_files(repo: str) -> list[HFFileGroup]:
     """The servable GGUFs in a repo, grouped: split parts collapse into one entry (first part is
     what llama.cpp loads); mmproj/draft companions are excluded. Largest quant first."""
+    from hermes_cli.local_runtime.gguf import is_companion_filename
+
     url = f"{_HF}/api/models/{urllib.parse.quote(repo)}/tree/main?recursive=true"
     files = _get_json(url)
 
@@ -99,8 +101,7 @@ def repo_files(repo: str) -> list[HFFileGroup]:
         path = str(f.get("path", ""))
         if not path.lower().endswith(".gguf"):
             continue
-        name = path.rsplit("/", 1)[-1].lower()
-        if name.startswith(("mmproj", "dspark")) or "draft" in name:
+        if is_companion_filename(path):
             continue
         size = int(f.get("size") or 0)
         m = _SPLIT_RE.search(path)
