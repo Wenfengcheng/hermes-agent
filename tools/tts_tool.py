@@ -439,7 +439,10 @@ def text_to_speech_tool(
     tts_config, provider = _apply_call_overrides(_load_tts_config(), speed, provider)
     command_provider_config = _resolve_command_provider_config(provider, tts_config)
     max_len = _resolve_max_text_length(provider, tts_config)
-    chunks = _split_text_for_tts(text, max_len)
+    try:
+        chunks = _split_text_for_tts(text, max_len)
+    except ValueError as exc:
+        return _tool_failure("TTS text preparation error", provider, exc)
     if not chunks:
         return tool_error("Text is required", success=False)
     if len(chunks) > 1:

@@ -294,8 +294,8 @@ def prepare_spoken_text(text: str, max_chars: int | None = 4000) -> str:
     # Private-use sentinels survive cleanup; HTML unescaping is the only stage
     # that can introduce them, so check that representation for collisions too.
     prefix = "\ue000"
-    decoded = html.unescape(spoken)
-    while prefix in decoded:
+    used = set(html.unescape(spoken))
+    while prefix in used:
         prefix = chr(ord(prefix) + 1)
     held: dict[str, str] = {}
 

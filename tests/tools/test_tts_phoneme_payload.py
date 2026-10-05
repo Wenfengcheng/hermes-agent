@@ -59,6 +59,24 @@ def test_plain_text_and_empty_input_keep_existing_cleanup():
     assert prepare_spoken_text("**Hi** 2m | 20%") == "Hi 2 metres; 20 percent"
 
 
+@pytest.mark.parametrize("introduction", ["A short introduction. ", "A short introduction "])
+def test_chunk_boundary_keeps_a_complete_phoneme_span(introduction):
+    from tools.tts_tool_delivery import _split_text_for_tts
+
+    text = introduction + SPAN + " tomato."
+    chunks = _split_text_for_tts(text, len(SPAN) + 2)
+    assert SPAN in chunks
+    assert all(len(chunk) <= len(SPAN) + 2 for chunk in chunks)
+    assert " ".join(chunks) == text
+
+
+def test_oversized_phoneme_span_reports_provider_limit():
+    from tools.tts_tool_delivery import _split_text_for_tts
+
+    with pytest.raises(ValueError, match="phoneme.*limit"):
+        _split_text_for_tts(SPAN, len(SPAN) - 1)
+
+
 def test_registered_tool_passes_phonemes_to_selected_plugin(tmp_path, monkeypatch):
     from agent import tts_registry
     from agent.tts_provider import TTSProvider
@@ -90,5 +108,22 @@ def test_registered_tool_passes_phonemes_to_selected_plugin(tmp_path, monkeypatc
         }))
         assert result["success"], result
         assert received == [f"Say {SPAN} tomato."]
+        received.clear()
+        monkeypatch.setattr(tts_tool, "_resolve_max_text_length", lambda *args: len(SPAN) + 2)
+        monkeypatch.setattr(tts_tool, "_build_audio_delivery_files", lambda paths, *args, **kwargs: (paths, False))
+        result = json.loads(registry.dispatch("text_to_speech", {
+            "text": "A short introduction " + SPAN + " tomato.",
+            "provider": "phoneme-fixture",
+            "output_path": str(tmp_path / "chunks.wav"),
+        }))
+        assert result["success"], result
+        assert SPAN in received
+        assert all(len(chunk) <= len(SPAN) + 2 for chunk in received)
+        received.clear()
+        monkeypatch.setattr(tts_tool, "_resolve_max_text_length", lambda *args: len(SPAN) - 1)
+        result = json.loads(tts_tool.text_to_speech_tool(SPAN, provider="phoneme-fixture"))
+        assert result["success"] is False
+        assert "phoneme" in result["error"]
+        assert not received
     finally:
         tts_registry._reset_for_tests()

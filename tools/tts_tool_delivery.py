@@ -182,6 +182,30 @@ def _split_text_for_tts(text: str, max_chars: int) -> List[str]:
         return []
     if len(normalized) <= max_chars:
         return [normalized]
+    from tools.tts_text_normalize import _PHONEME_SPAN_RE
+    if _PHONEME_SPAN_RE.search(normalized):
+        chunks: List[str] = []
+        remaining = normalized
+        while len(remaining) > max_chars:
+            end = max_chars
+            for span in _PHONEME_SPAN_RE.finditer(remaining):
+                if span.start() < end < span.end():
+                    end = span.start()
+                    if end == 0:
+                        raise ValueError("A phoneme span exceeds the provider text limit")
+                    break
+            # Prefer a word boundary unless that boundary lies inside a span.
+            boundary = remaining.rfind(" ", 0, end + 1)
+            if boundary > 0 and not any(
+                span.start() < boundary < span.end()
+                for span in _PHONEME_SPAN_RE.finditer(remaining)
+            ):
+                end = boundary
+            chunks.append(remaining[:end].rstrip())
+            remaining = remaining[end:].lstrip()
+        if remaining:
+            chunks.append(remaining)
+        return chunks
     expanded: List[str] = []
     for sentence in filter(None, (s.strip() for s in re.split(r"(?<=[.!?;:,])\s+", normalized))):
         if len(sentence) <= max_chars:
