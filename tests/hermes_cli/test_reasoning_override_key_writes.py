@@ -59,3 +59,10 @@ def test_explicit_creation_updates_and_fields_reach_runtime(tmp_path, monkeypatc
     saved = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert resolve_reasoning_config(saved, "prefix-model.3-flash") == {"enabled": True, "effort": "max"}
     assert resolve_reasoning_config(saved, "prefix-model") == {"enabled": True, "effort": "low"}
+    # An error's suggested field path must configure the original model.
+    config = {}
+    with pytest.raises(ValueError) as exc:
+        _set_nested(config, prefix + "new.3-model.effort", "fast")
+    suggestion = str(exc.value).split("(e.g. ", 1)[1].split(").", 1)[0]
+    _set_nested(config, suggestion, "fast")
+    assert resolve_reasoning_config(config, "new.3-model") == {"enabled": True, "effort": "fast"}

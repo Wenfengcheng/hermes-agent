@@ -18,7 +18,10 @@ def validate_reasoning_override_path(config, parts):
     fields = suffix[consumed:]
     if not fields or fields in (["enabled"], ["effort"]):
         return
-    escaped = ".".join(suffix).replace(".", "\\.")
+    model_parts = suffix[:-1] if suffix[-1] in {"enabled", "effort"} else suffix
+    escaped = ".".join(model_parts).replace(".", "\\.")
+    if model_parts != suffix:
+        escaped += "." + suffix[-1]
     raise ValueError(
         "Ambiguous reasoning override path: escape dots in a new model ID "
         f"(e.g. agent.reasoning_overrides.{escaped}). "
