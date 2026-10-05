@@ -36,6 +36,39 @@ def test_pruned_result_display_preserves_original_once(tmp_path, projection):
         db.close()
 
 
+@pytest.mark.parametrize("pruned", [False, True])
+def test_rotation_prefix_does_not_repeat_a_result_carried_by_the_live_tip(tmp_path, pruned):
+    db = SessionDB(tmp_path / "rotation.db")
+    try:
+        db.create_session("parent", source="test")
+        db.append_messages_batch("parent", [
+            {"role": "user", "content": "ancestor only", "timestamp": 90.0},
+            {"role": "assistant", "content": "older answer", "timestamp": 91.0},
+            {"role": "user", "content": "run", "timestamp": 100.0},
+            {"role": "assistant", "content": "working", "timestamp": 101.0,
+             "tool_calls": [{"id": "call", "type": "function", "function": {"name": "demo", "arguments": "{}"}}]},
+            {"role": "tool", "content": "original output", "tool_call_id": "call", "timestamp": 102.0},
+            {"role": "assistant", "content": "done", "timestamp": 103.0},
+        ])
+        carried = db.get_messages_as_conversation("parent", include_row_ids=True)[2:]
+        if pruned:
+            carried[2]["content"] = "pruned"
+        db.publish_compression_child(parent_session_id="parent", child_session_id="tip",
+                                     source="test", messages=carried, require_compression_lease=False)
+        model, display = db.get_resume_conversations("tip")
+        prefix = db.get_ancestor_display_prefix("tip")
+        assert [m["content"] for m in display if m["role"] == "tool"] == ["original output"]
+        assert [m["content"] for m in model if m["role"] == "tool"] == [carried[2]["content"]]
+        assert [m["content"] for m in prefix] == ["ancestor only", "older answer"]
+        assert len([m for m in prefix + model if m["role"] == "tool"]) == 1
+        # Once the tip no longer carries the result, the ancestor owns its display again.
+        db.archive_and_compact("tip", [{"role": "user", "content": "next question"}])
+        prefix = db.get_ancestor_display_prefix("tip")
+        assert [m["content"] for m in prefix if m["role"] == "tool"] == ["original output"]
+    finally:
+        db.close()
+
+
 @pytest.mark.parametrize("read_only", [False, True])
 @pytest.mark.parametrize("original", ["", "full original output"])
 def test_existing_display_index_heals_without_merging_independent_results(tmp_path, read_only, original):

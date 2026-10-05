@@ -1745,9 +1745,16 @@ class SessionMessagesMixin:
         session_ids = self._resume_lineage_ids(session_id)
         if len(session_ids) <= 1:
             return []
-        rows = self._dedupe_display_generations(
-            self._fetch_conversation_rows(session_ids, _DISPLAY_ACTIVE_CLAUSE, with_session_id=True))
-        ancestor_ids = {int(row["id"]) for row in rows if row["session_id"] != session_id and row["id"] is not None}
+        all_rows = self._fetch_conversation_rows(session_ids, _DISPLAY_ACTIVE_CLAUSE, with_session_id=True)
+        # Full display keeps the original result payload, which may live in an ancestor.
+        # The prefix is appended to the live tip's model history instead: do not prepend
+        # an original whose logical result is already carried there (possibly pruned).
+        tip_keys = {self._display_dedupe_key(row) for row in all_rows
+                    if row["session_id"] == session_id and row["active"] and not self._is_model_only_row(row)}
+        rows = self._dedupe_display_generations(all_rows)
+        ancestor_ids = {int(row["id"]) for row in rows
+                        if row["session_id"] != session_id and row["id"] is not None
+                        and self._display_dedupe_key(row) not in tip_keys}
         if not ancestor_ids:
             return []
         lineage = self._rows_to_conversation(
