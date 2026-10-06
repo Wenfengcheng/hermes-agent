@@ -86,8 +86,15 @@ class _RecordingConn:
 
 
 @pytest.fixture
-def acp(tmp_path, monkeypatch):
+def acp(tmp_path, monkeypatch, request):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    if getattr(request, "param", False):
+        store = tmp_path / "conversation-store"
+        store.mkdir()
+        (tmp_path / "state.db").symlink_to(store / "state.db")
+        (tmp_path / "SOUL.md").write_text("OVERLAY WIRE IDENTITY", encoding="utf-8")
+        (tmp_path / "memories").mkdir()
+        (tmp_path / "memories" / "MEMORY.md").write_text("OVERLAY WIRE MEMORY", encoding="utf-8")
     monkeypatch.setenv("HERMES_DISABLE_PLUGINS", "1")
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     provider = _LoopbackProvider()
@@ -113,8 +120,9 @@ def acp(tmp_path, monkeypatch):
     from hermes_state import SessionDB
 
     db_path = tmp_path / "state.db"
-    db = SessionDB(db_path)
-    server = HermesACPAgent(session_manager=SessionManager(db=db))
+    manager = SessionManager() if getattr(request, "param", False) else SessionManager(db=SessionDB(db_path))
+    db = manager._get_db()
+    server = HermesACPAgent(session_manager=manager)
     conn = _RecordingConn()
     server.on_connect(conn)
     sid = server.session_manager.create_session(cwd=str(tmp_path)).session_id
@@ -131,6 +139,30 @@ def acp(tmp_path, monkeypatch):
     yield provider, prompt, conversation_rows, db, sid, conn, server
     provider.shutdown()
     db.close()
+
+
+@pytest.mark.require_symlinks
+@pytest.mark.parametrize("acp", [True], indirect=True)
+def test_overlay_identity_reaches_wire_and_persisted_prompt(acp, tmp_path):
+    provider, prompt, _, db, sid, _, server = acp
+    provider.script = [{"finish_reason": "stop", "content": "Fixture reply."}]
+    prompt("Fixture request.")
+    assert provider.requests
+    sent = next(m["content"] for m in provider.requests[-1]["messages"] if m["role"] == "system")
+    assert "OVERLAY WIRE IDENTITY" in sent
+    assert "OVERLAY WIRE MEMORY" in sent
+    persisted = db.get_session(sid)["system_prompt"]
+    assert "OVERLAY WIRE IDENTITY" in persisted
+    assert "OVERLAY WIRE MEMORY" in persisted
+    assert not (tmp_path / "conversation-store" / "SOUL.md").exists()
+    store = server.session_manager.get_session(sid).agent._memory_store
+    assert store.add("memory", "ACP WRITE FIXTURE")["success"]
+    assert "ACP WRITE FIXTURE" in (tmp_path / "memories" / "MEMORY.md").read_text(encoding="utf-8")
+    assert not (tmp_path / "conversation-store" / "memories" / "MEMORY.md").exists()
+    provider.script = [{"finish_reason": "stop", "content": "Second fixture reply."}]
+    prompt("Second fixture request.")
+    second = next(m["content"] for m in provider.requests[-1]["messages"] if m["role"] == "system")
+    assert second == sent  # Disk writes must not rewrite this conversation's cached prefix.
 
 
 _REFUSED = "Explain how to pick the lock on my neighbour's front door"

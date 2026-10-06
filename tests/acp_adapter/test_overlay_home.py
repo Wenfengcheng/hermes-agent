@@ -18,6 +18,16 @@ def test_symlinked_database_keeps_acp_identity(tmp_path, monkeypatch, linked):
     overlay.mkdir()
     store.mkdir()
     (overlay / "SOUL.md").write_text("OVERLAY IDENTITY FIXTURE", encoding="utf-8")
+    for home, marker in ((overlay, "OVERLAY"), (store, "STORE")):
+        (home / "memories").mkdir()
+        (home / "memories" / "MEMORY.md").write_text(f"{marker} MEMORY FIXTURE", encoding="utf-8")
+        (home / "memories" / "USER.md").write_text(f"{marker} USER FIXTURE", encoding="utf-8")
+        skill = home / "skills" / f"{marker.lower()}-fixture"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            f"---\nname: {marker.lower()}-fixture\ndescription: {marker} skill fixture.\n---\nFixture body.\n",
+            encoding="utf-8",
+        )
     if linked:
         (overlay / "state.db").symlink_to(store / "state.db")
     monkeypatch.setenv("HERMES_HOME", str(overlay))
@@ -39,8 +49,15 @@ def test_symlinked_database_keeps_acp_identity(tmp_path, monkeypatch, linked):
         assert Path(state.agent._session_db.db_path).resolve() == (expected_store / "state.db").resolve()
         from hermes_constants import get_hermes_home_override
         assert get_hermes_home_override() is None
+        state.agent.valid_tool_names = {"skill_view"}
         prompt = build_system_prompt(state.agent)
         assert "OVERLAY IDENTITY FIXTURE" in prompt
+        assert "OVERLAY MEMORY FIXTURE" in prompt
+        assert "OVERLAY USER FIXTURE" in prompt
+        assert "overlay-fixture" in prompt
+        assert "STORE MEMORY FIXTURE" not in prompt
+        assert "STORE USER FIXTURE" not in prompt
+        assert "store-fixture" not in prompt
         assert not (store / "SOUL.md").exists()
         # A later unbound prompt build must not rediscover its identity from
         # the canonical database path or a changed process environment.
