@@ -193,6 +193,8 @@ def cron_list(show_all: bool = False):
     _print_banner(f"Scheduled Jobs (profile: {get_active_profile_name()})")
 
     for job in jobs:
+        from hermes_cli.cron_deferred_receipts import deferred_delivery_display
+        job = deferred_delivery_display(job)
         # effective_job_state honours the scheduler flag — never [paused] when enabled=true.
         badge = _STATE_BADGES.get(effective_job_state(job)) or (
             ("[active]", Colors.GREEN) if job.get("enabled", True) else ("[disabled]", Colors.RED))
@@ -211,6 +213,8 @@ def _last_run_display(job: Dict[str, Any]) -> str:
     if last_status == "ok":
         return color("ok", Colors.GREEN)
     if last_status == "delivery_queued":
+        if summary := job.get("_deferred_delivery_summary"):
+            return color(f"finished; deferred delivery {summary}", Colors.YELLOW)
         return color("finished; delivery is still in progress", Colors.YELLOW)
     if last_status == "delivery_failed":
         # Agent succeeded but the result never reached the user — not green; last_error is None.
@@ -281,6 +285,8 @@ def _missed_fire_issue(job: Dict[str, Any], fire_err: Dict[str, Any]) -> str:
 def _job_warnings(job: Dict[str, Any]) -> List[str]:
     """Delivery / fire warning lines for one job in ``cron list``."""
     lines = []
+    if statuses := job.get("_deferred_delivery_statuses"):
+        lines.append(f"Deferred delivery receipts: {statuses}")
     if queued := job.get("last_delivery_queued"):
         lines.append(f"Delivery still in progress (the result was handed off but not confirmed yet): {queued}")
     if job.get("last_delivery_error"):
