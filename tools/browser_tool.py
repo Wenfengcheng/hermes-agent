@@ -1310,7 +1310,9 @@ _BROWSER_SCHEMA_MAP = {s["name"]: s for s in BROWSER_TOOL_SCHEMAS}
 
 def check_browser_routed_requirements(action: str = "browser_snapshot") -> bool:
     """Availability gate for tools that can use either browser backend."""
-    return _install.check_browser_requirements() or extension_controller_available(action)
+    # A bound, capable controller is the authoritative execution lane. Its
+    # availability must not depend on an unrelated legacy provider's config.
+    return extension_controller_available(action) or _install.check_browser_requirements()
 
 
 def _fallback_call(fn_name: str, arg_defaults: Dict[str, Any], extra_kw: tuple = ()):
