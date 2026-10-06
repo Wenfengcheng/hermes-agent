@@ -129,3 +129,40 @@ def test_positional_only_name_is_not_keyword_opt_in(agent):
     agent.context_compressor = Positional()
     assert dispatch(agent) is None
 
+
+def test_real_agent_compression_delivers_state_before_summary():
+    from run_agent import AIAgent
+
+    received = []
+    class Engine:
+        compression_count = 1
+        last_prompt_tokens = last_completion_tokens = 0
+        _last_summary_error = _last_aux_model_failure_model = _last_aux_model_failure_error = None
+        _last_compress_aborted = False
+
+        def compress(self, messages, current_tokens=None, *, host_state=None):
+            received.append(host_state)
+            return [messages[0], messages[-1]]
+
+    agent = AIAgent(
+        api_key="test-key", provider="openrouter", api_mode="chat_completions",
+        base_url="https://example.invalid/v1", model="test/model", quiet_mode=True,
+        session_db=None, session_id="real-agent-session", skip_context_files=True, skip_memory=True,
+    )
+    agent.context_compressor = Engine()
+    agent._compression_feasibility_checked = True
+    agent._invalidate_system_prompt = lambda: None
+    agent._build_system_prompt = lambda _message: "unchanged-system"
+    agent._todo_store.write([{"id": "real", "content": "keep working state", "status": "pending"}])
+    goals.save_goal(agent.session_id, goals.GoalState(
+        "real goal", contract=goals.GoalContract(verification="real verification"),
+    ))
+    messages = [{"role": "user", "content": f"message {i}"} for i in range(6)]
+    compressed, _ = agent._compress_context(messages, "unchanged-system", approx_tokens=100_000, force=True)
+    assert len(received) == 1
+    assert received[0] is not None
+    assert received[0]["goal"]["text"] == "real goal"
+    assert "real verification" in received[0]["goal"]["contract"]
+    assert received[0]["todos"] == agent._todo_store.read()
+    assert compressed
+
