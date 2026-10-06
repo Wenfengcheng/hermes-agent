@@ -91,16 +91,21 @@ def windows_bash_candidates(on_path: str | None, env: Mapping[str, str]) -> list
 
 
 def _bash_starts(candidate: str) -> bool:
-    """An existing bash.exe can still be broken or be a launcher stub."""
-    try:
-        return subprocess.run(
-            [candidate, "-c", "exit 0"], stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=5, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            check=False,
-        ).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+    """Reject broken shells, allowing one retry for transient startup delay."""
+    for attempt in range(2):
+        try:
+            return subprocess.run(
+                [candidate, "-c", "exit 0"], stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=5, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False,
+            ).returncode == 0
+        except subprocess.TimeoutExpired:
+            if attempt == 1:
+                return False
+        except OSError:
+            return False
+    return False
 
 
 def bash() -> str | None:
