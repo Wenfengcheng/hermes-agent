@@ -2040,8 +2040,8 @@ def _validate_cached_context_length(model: str, base_url: str, cached: int, *, a
         except Exception:
             live = None
         if type(live) is int and live > 0:
-            if live != cached:
-                save_context_length(model, base_url, live)
+            # The scalar format has no credential provenance. Answer this call
+            # without overwriting the offline fallback with another key's limit.
             return live
     return cached
 

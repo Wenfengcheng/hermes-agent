@@ -67,10 +67,10 @@ def test_explicit_override_does_not_probe(catalog):
     assert catalog["calls"] == []
 
 
-def test_revalidated_window_is_durable(catalog):
+def test_revalidation_does_not_rewrite_unscoped_scalar(catalog):
     mm.save_context_length("auto", "https://router.example/v1", 24_000)
     assert resolve() == 128_000
-    assert mm.get_cached_context_length("auto", "https://router.example/v1") == 128_000
+    assert mm.get_cached_context_length("auto", "https://router.example/v1") == 24_000
 
 
 def test_raised_resolver_preserves_last_known_window(catalog, monkeypatch):
@@ -117,7 +117,7 @@ def test_revalidation_does_not_promote_other_credentials_disk_catalog(catalog):
     assert mm.fetch_endpoint_model_metadata(url, api_key="fixture-B")["auto"]["context_length"] == 1_000_000
     mm.save_context_length("auto", url, 24_000)
     assert resolve(api_key="fixture-B") == 128_000
-    assert mm.get_cached_context_length("auto", url) == 128_000
+    assert mm.get_cached_context_length("auto", url) == 24_000
 
 
 def test_revalidation_keeps_credentials_separate(catalog):
@@ -126,3 +126,15 @@ def test_revalidation_keeps_credentials_separate(catalog):
     catalog["length"] = 64_000
     assert resolve(api_key="fixture-B") == 64_000
     assert resolve(api_key="fixture-A") == 128_000
+
+
+def test_expired_other_credential_does_not_change_offline_fallback(catalog, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(mm.time, "time", lambda: clock[0])
+    mm.save_context_length("auto", "https://router.example/v1", 96_000)
+    assert resolve(api_key="fixture-A") == 128_000
+    catalog["length"] = 64_000
+    assert resolve(api_key="fixture-B") == 64_000
+    clock[0] += mm._ENDPOINT_MODEL_CACHE_TTL + 1
+    catalog["error"] = True
+    assert resolve(api_key="fixture-A") == 96_000
