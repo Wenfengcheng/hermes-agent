@@ -2,6 +2,8 @@
 
 import pytest
 
+from hermes_cli.models_validate import validate_requested_model as _real_validate_requested_model
+
 
 @pytest.fixture
 def configured_alias(monkeypatch, request):
@@ -18,6 +20,9 @@ def configured_alias(monkeypatch, request):
         cfg["model"]["aliases"] = cfg.pop("model_aliases")
     elif variant == "absent":
         cfg.pop("model_aliases")
+    elif variant == "custom_preset":
+        cfg["model_aliases"]["team"] = cfg["model_aliases"].pop("default")
+        cfg["moa"] = {"default_preset": "team", "presets": {"team": {}}}
     atomic_config_write(get_hermes_home() / "config.yaml", cfg)
     monkeypatch.setattr(ms, "DIRECT_ALIASES", {})
     monkeypatch.setattr(ms, "_DIRECT_ALIAS_IDENTITY", None)
@@ -26,6 +31,24 @@ def configured_alias(monkeypatch, request):
     monkeypatch.setattr(ms, "get_model_capabilities", lambda *a, **k: None)
     monkeypatch.setattr("hermes_cli.models_validate.validate_requested_model", lambda *a, **k: {"accepted": True, "persist": True})
     return ms
+
+
+@pytest.mark.parametrize("configured_alias", ["custom_preset"], indirect=True)
+def test_custom_collision_uses_real_moa_validation(configured_alias, monkeypatch):
+    import hermes_cli.models_validate as validation
+
+    implicit = configured_alias.switch_model("team", "custom", "prior")
+    assert implicit.success, implicit.error_message
+    assert (implicit.target_provider, implicit.new_model) == ("custom", "everyday-model")
+    # Restore actual preset validation; neither MoA selection needs a network request.
+    monkeypatch.setattr(validation, "validate_requested_model", _real_validate_requested_model)
+    explicit = configured_alias.switch_model("team", "custom", "prior", explicit_provider="moa")
+    assert explicit.success, explicit.error_message
+    assert (explicit.target_provider, explicit.new_model) == ("moa", "team")
+    missing = configured_alias.switch_model(
+        "missing-preset", "custom", "prior", explicit_provider="moa")
+    assert not missing.success
+    assert "was not found" in missing.error_message
 
 
 @pytest.mark.parametrize("configured_alias", ["top", "nested"], indirect=True)
