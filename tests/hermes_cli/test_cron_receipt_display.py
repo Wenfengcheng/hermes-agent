@@ -115,3 +115,19 @@ def test_deferred_receipt_is_read_without_drain(tmp_path, monkeypatch, status):
         "bot-chat:(own)": {"delivery_id": key, "status": "queued"}}))
     assert view["_delivery_receipt_summary"] == ("unknown" if status == "transferred" else status)
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("profile", [None, "other", 1])
+def test_deferred_receipt_rejects_wrong_profile(tmp_path, monkeypatch, profile):
+    import json
+    from cron import bot_chat_delivery
+    from hermes_cli.cron_receipts import delivery_display
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    key = "e" * 64
+    record = bot_chat_delivery.defer(key, {"id": "weekly"}, "payload", "", tmp_path)
+    record.update(status="settled", profile=profile)
+    (tmp_path / "cron" / "bot_chat_pending" / f"{key}.json").write_text(json.dumps(record), encoding="utf8")
+    view = delivery_display(dict(last_status="delivery_queued", last_delivery_queued={
+        "bot-chat:(own)": {"delivery_id": key, "status": "queued"}}))
+    assert view["_delivery_receipt_summary"] == "unknown"

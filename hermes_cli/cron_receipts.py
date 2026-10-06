@@ -34,6 +34,7 @@ def _receipt_status(target: str, snapshot: dict) -> str:
             receipt = read_pending(key)
             if receipt is not None and (
                 receipt.get("id") != key or not isinstance(receipt.get("home"), str)
+                or receipt.get("profile") != ("" if profile == "(own)" else profile)
                 or not receipt["home"] or Path(receipt["home"]).resolve() != home.resolve()
             ):
                 return "unknown"
