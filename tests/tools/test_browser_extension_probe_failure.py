@@ -30,7 +30,10 @@ def bound_extension(monkeypatch, tmp_path):
         browser_profile_id="browser-fixture", transport_family="local-api",
         capabilities=frozenset({"browser_snapshot"}),
     )
-    broker.attach(scope, lambda frame: None, owner="socket-fixture")
+    def respond(frame):
+        broker.complete(frame["params"]["command_id"], scope=scope, ok=True, result={"snapshot": "fixture"})
+
+    broker.attach(scope, respond, owner="socket-fixture")
     monkeypatch.setattr(control, "browser_control_enabled", lambda: True)
     monkeypatch.setattr(control, "get_browser_control_broker", lambda: broker)
     tokens = set_session_vars(
@@ -52,6 +55,18 @@ def test_registry_keeps_capable_extension_when_cloud_selection_is_invalid(bound_
         install.check_browser_requirements()
     definitions = registry.get_definitions({"browser_snapshot", "browser_click"}, quiet=True)
     assert [item["function"]["name"] for item in definitions] == ["browser_snapshot"]
+    import json
+    assert json.loads(registry.get_entry("browser_snapshot").handler({})) == {"snapshot": "fixture"}
+
+
+@pytest.mark.parametrize("legacy_result", [True, False])
+def test_unbound_extension_preserves_normal_legacy_result(monkeypatch, legacy_result):
+    from tools import browser_tool as browser
+    from tools import browser_tool_install as install
+
+    monkeypatch.setattr(browser, "extension_controller_available", lambda action: False)
+    monkeypatch.setattr(install, "check_browser_requirements", lambda: legacy_result)
+    assert browser.check_browser_snapshot_requirements() is legacy_result
 
 
 def test_missing_capability_preserves_strict_legacy_error(bound_extension):
