@@ -567,8 +567,14 @@ class SessionManager:
         except Exception:
             logger.debug("ACP: bounded MCP discovery wait failed", exc_info=True)
 
+        # The registry canonicalizes state.db (including symlinks), but its
+        # target directory is not necessarily the ACP session's logical home.
+        from hermes_constants import set_hermes_home_override, reset_hermes_home_override
+        home = get_hermes_home()
+        home_token = set_hermes_home_override(str(home))
         try:
             agent = AIAgent(**kwargs)
+            agent._hermes_home = home
         except Exception as exc:
             # The bare-AIAgent fallback dies with "No LLM provider configured. Run `hermes setup`" on a
             # machine that is configured and was working a call earlier; the swallowed resolution
@@ -576,6 +582,8 @@ class SessionManager:
             if resolve_error is not None:
                 raise resolve_error from exc
             raise
+        finally:
+            reset_hermes_home_override(home_token)
         # ACP stdio: stdout is protocol-only JSON-RPC; agent chatter goes to stderr.
         agent._print_fn = _acp_stderr_print
         return agent

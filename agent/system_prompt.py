@@ -225,7 +225,8 @@ def _session_start_like(agent: Any, now: Any) -> Any:
 def _agent_home(agent: Any) -> Optional[Path]:
     """The agent's OWN profile home, or None to use ambient resolution.
     A bound HERMES_HOME ContextVar override wins (the gateway multiplexes
-    profiles over one shared session DB and binds the home per turn); else the
+    profiles over one shared session DB and binds the home per turn); else a
+    caller-pinned logical home (ACP may symlink its DB elsewhere), then the
     parent of ``_session_db.db_path`` — ground truth on threads that lost the
     ContextVar, where ambient resolution would leak the launch profile.
 
@@ -246,6 +247,9 @@ def _agent_home(agent: Any) -> Optional[Path]:
     except Exception:
         pass
     try:
+        home = getattr(agent, "_hermes_home", None)
+        if isinstance(home, (str, Path)) and home:
+            return Path(home)
         db_path = getattr(getattr(agent, "_session_db", None), "db_path", None)
         return Path(db_path).parent if db_path else None
     except Exception:
