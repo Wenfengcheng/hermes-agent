@@ -102,3 +102,27 @@ def test_route_credential_reaches_catalog(catalog, monkeypatch):
     mm.save_context_length("auto", "https://router.example/v1", 24_000)
     assert resolve(api_key="fixture-credential") == 128_000
     assert seen == ["Bearer fixture-credential"]
+
+
+def test_known_provider_proxy_does_not_revalidate(catalog):
+    mm.save_context_length("auto", "https://router.example/v1", 96_000)
+    assert mm.get_model_context_length("auto", base_url="https://router.example/v1", provider="openai") == 96_000
+    assert catalog["calls"] == []
+
+
+def test_revalidation_does_not_promote_other_credentials_disk_catalog(catalog):
+    url = "https://router.example/v1"
+    mm._endpoint_disk_cache_put(url, {"auto": {"context_length": 1_000_000}})
+    # Exercise the existing disk -> credential-keyed memory promotion first.
+    assert mm.fetch_endpoint_model_metadata(url, api_key="fixture-B")["auto"]["context_length"] == 1_000_000
+    mm.save_context_length("auto", url, 24_000)
+    assert resolve(api_key="fixture-B") == 128_000
+    assert mm.get_cached_context_length("auto", url) == 128_000
+
+
+def test_revalidation_keeps_credentials_separate(catalog):
+    mm.save_context_length("auto", "https://router.example/v1", 24_000)
+    assert resolve(api_key="fixture-A") == 128_000
+    catalog["length"] = 64_000
+    assert resolve(api_key="fixture-B") == 64_000
+    assert resolve(api_key="fixture-A") == 128_000

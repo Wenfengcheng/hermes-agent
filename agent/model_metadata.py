@@ -1024,18 +1024,22 @@ def _parse_models_payload(payload: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return cache
 
 
-def fetch_endpoint_model_metadata(base_url: str, api_key: str = "", force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+def fetch_endpoint_model_metadata(base_url: str, api_key: str = "", force_refresh: bool = False, *, use_disk_cache: bool = True) -> Dict[str, Dict[str, Any]]:
     """Model metadata from an OpenAI-compatible ``/models`` endpoint (cached per base URL)."""
     normalized = _normalize_base_url(base_url)
     if not normalized or base_url_host_matches(normalized, "openrouter.ai"):
         return {}
     local = is_local_endpoint(normalized)
     memo_key = _endpoint_memo_key(normalized, api_key)
+    if not use_disk_cache:
+        # A normal lookup may have promoted URL-only disk data into memory. Keep
+        # live-only revalidation separate so it cannot inherit that provenance.
+        memo_key = (memo_key[0], "live:" + memo_key[1])
     if not force_refresh:
         cached = _endpoint_model_metadata_cache.get(memo_key)
         if cached is not None and (time.time() - _endpoint_model_metadata_cache_time.get(memo_key, 0)) < _ENDPOINT_MODEL_CACHE_TTL:
             return cached
-        memo = _endpoint_disk_cache_get(normalized) if not local else None
+        memo = _endpoint_disk_cache_get(normalized) if not local and use_disk_cache else None
         if memo is not None:
             return _remember_endpoint_models(memo_key, memo)
     # Blackholed: return empty WITHOUT caching so it is retried once the entry expires.
@@ -1072,7 +1076,7 @@ def fetch_endpoint_model_metadata(base_url: str, api_key: str = "", force_refres
             if any(m.get("owned_by") == "llamacpp" for m in payload.get("data", []) if isinstance(m, dict)):
                 with contextlib.suppress(Exception):
                     _apply_llamacpp_props(cache, request_candidate, headers, verify)
-            if cache and not local:
+            if cache and not local and use_disk_cache:
                 _endpoint_disk_cache_put(normalized, cache)
             return _remember_endpoint_models(memo_key, cache)
         except Exception as exc:
@@ -1083,9 +1087,10 @@ def fetch_endpoint_model_metadata(base_url: str, api_key: str = "", force_refres
     return _remember_endpoint_models(memo_key, {})
 
 
-def _resolve_endpoint_context_length(model: str, base_url: str, api_key: str = "") -> Optional[int]:
+def _resolve_endpoint_context_length(model: str, base_url: str, api_key: str = "", *, use_disk_cache: bool = True) -> Optional[int]:
     """Resolve context length from an endpoint's live ``/models`` metadata."""
-    endpoint_metadata = fetch_endpoint_model_metadata(base_url, api_key=api_key)
+    endpoint_metadata = (fetch_endpoint_model_metadata(base_url, api_key=api_key) if use_disk_cache
+                         else fetch_endpoint_model_metadata(base_url, api_key=api_key, use_disk_cache=False))
     matched = endpoint_metadata.get(model)
     if not matched and len(endpoint_metadata) == 1:
         matched = next(iter(endpoint_metadata.values()))
@@ -1994,7 +1999,7 @@ def _resolve_nous_context_length(model: str, base_url: str = "", api_key: str = 
     return None, ""
 
 
-def _validate_cached_context_length(model: str, base_url: str, cached: int, *, api_key: str = "") -> Optional[int]:
+def _validate_cached_context_length(model: str, base_url: str, cached: int, *, api_key: str = "", provider: str = "") -> Optional[int]:
     """Step 1 of get_model_context_length: accept, repair, or drop a persisted entry. Returns the
     value to use, or None to fall through to live resolution. Order matters: a value must be
     rejected as bogus before any provider-specific handling."""
@@ -2028,9 +2033,10 @@ def _validate_cached_context_length(model: str, base_url: str, cached: int, *, a
     # Remote custom routes may be aliases whose backing deployment changes (#133606).
     # Reuse the bounded /models memo rather than letting a scalar disk entry suppress
     # revalidation forever. Keep the last known window when the catalog is unavailable.
-    if _is_custom_endpoint(base_url) and not _is_known_provider_base_url(base_url):
+    custom_provider = (provider or "").strip().lower()
+    if (custom_provider in {"", "custom"} or custom_provider.startswith("custom:")) and _is_custom_endpoint(base_url) and not _is_known_provider_base_url(base_url):
         try:
-            live = _resolve_endpoint_context_length(model, base_url, api_key=api_key)
+            live = _resolve_endpoint_context_length(model, base_url, api_key=api_key, use_disk_cache=False)
         except Exception:
             live = None
         if type(live) is int and live > 0:
@@ -2314,7 +2320,7 @@ def get_model_context_length(
     codex_route = _is_codex_route(provider, base_url, custom_providers)
     # 1. Persistent cache (LM Studio / Codex routes excluded — see _skip_persistent_context_cache).
     cached = get_cached_context_length(model, base_url) if base_url and not is_bedrock_context and not codex_route and not _skip_persistent_context_cache(base_url, provider) else None
-    validated = _validate_cached_context_length(model, base_url, cached, api_key=api_key) if cached is not None else None
+    validated = _validate_cached_context_length(model, base_url, cached, api_key=api_key, provider=provider) if cached is not None else None
     if validated is not None:
         return validated
     # 1b. AWS Bedrock. Must run BEFORE the custom-endpoint step: bedrock-runtime.* is not in
