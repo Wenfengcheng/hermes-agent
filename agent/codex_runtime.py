@@ -806,10 +806,35 @@ def _codex_event_has_content(event: Any) -> bool:
     event_type = _event_field(event, "type")
     if event_type in _CODEX_PROGRESS_DELTA_TYPES:
         return bool(_event_field(event, "delta"))
-    if event_type == "response.output_item.added":
+    if event_type in {"response.output_item.added", "response.output_item.done"}:
         item = _event_field(event, "item")
-        return "function_call" in str(_event_field(item, "type") or "") and any(
-            bool(_event_field(item, field)) for field in ("id", "call_id", "name", "arguments"))
+        if "function_call" in str(_event_field(item, "type") or ""):
+            return any(bool(_event_field(item, field)) for field in ("id", "call_id", "name", "arguments"))
+        if event_type == "response.output_item.done":
+            return _completed_item_has_text(item)
+    return False
+
+
+def _completed_item_has_text(item: Any) -> bool:
+    """Completed payloads can be the first output on delta-less Responses streams.
+
+    IDs, status and encrypted reasoning alone are structural, not displayable output.
+    Keep this independent of display callbacks (which users may disable).
+    """
+    item_type = _event_field(item, "type")
+    if item_type not in {"message", "reasoning"}:
+        return False
+    fields = ("content", "summary") if item_type == "reasoning" else ("content",)
+    for field in fields:
+        parts = _event_field(item, field)
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            text_field = {"output_text": "text", "summary_text": "text",
+                          "reasoning_text": "text", "refusal": "refusal"}.get(_event_field(part, "type"))
+            text = _event_field(part, text_field) if text_field else None
+            if isinstance(text, str) and text.strip():
+                return True
     return False
 
 
