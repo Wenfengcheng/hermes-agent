@@ -509,6 +509,12 @@ function ArtifactImageCard({ artifact, failedImage, onImageError, onOpenChat }: 
           failedImage && 'cursor-default'
         )}
       >
+        {failedImage && (
+          <div className="flex flex-col items-center gap-2 text-center text-xs text-(--ui-text-tertiary)">
+            <FileImage aria-hidden="true" className="size-5" />
+            <span>{t.rightSidebar.previewUnavailable}</span>
+          </div>
+        )}
         {!failedImage && src && (
           <ZoomableImage
             alt={artifact.label}
