@@ -106,6 +106,19 @@ def test_live_and_prebuild_reject_same_route():
         assert "create_service_tier_override" not in session
 
 
+@pytest.mark.parametrize("params", [{}, {"session_id": "stale", "scope": "global"}])
+def test_global_default_does_not_resolve_credentials(monkeypatch, params):
+    def unavailable(*args):
+        raise AssertionError("a global preference must not resolve credentials")
+    writes = []
+    monkeypatch.setattr(server, "_resolve_agent_model_runtime", unavailable)
+    monkeypatch.setattr(server, "_write_config_key", lambda *args: writes.append(args))
+    response = server.handle_request({"id": "global", "method": "config.set", "params": {
+        **params, "key": "fast", "value": "fast"}})
+    assert response.get("result", {}).get("value") == "fast", response
+    assert writes == [("agent.service_tier", "fast")]
+
+
 def test_empty_resolved_model_is_rejected(monkeypatch):
     monkeypatch.setattr(server, "_resolve_agent_model_runtime", lambda *args: ("", {"provider": "openai-api"}))
     session = {"agent": None}

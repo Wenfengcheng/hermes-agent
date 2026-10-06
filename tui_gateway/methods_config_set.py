@@ -188,6 +188,9 @@ def _set_fast(rid, params, key, value, session):
         if agent is not None:
             target_model = getattr(agent, "model", None)
             provider, base_url = getattr(agent, "provider", None), getattr(agent, "base_url", None)
+        elif session is None:
+            # A profile default can be configured before credentials exist.
+            target_model, provider, base_url = _resolve_model(), None, None
         else:
             # A deferred session has no agent attributes yet. Resolve the same
             # picked/persisted route its build will use, rather than admitting
