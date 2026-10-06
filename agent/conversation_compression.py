@@ -2976,6 +2976,9 @@ def _resolve_compress_call(
         compress_fn, current_tokens=approx_tokens, focus_topic=focus_topic, force=force, memory_context=memory_context,
         bypass_cooldown=bypass_cooldown,
     )
+    from agent.context_engine_host_state import compression_host_state_kwargs
+
+    compress_kwargs.update(compression_host_state_kwargs(compress_fn, agent))
     if memory_context.strip() and "memory_context" not in compress_kwargs:
         engine_name = getattr(agent.context_compressor, "name", type(agent.context_compressor).__name__)
         if getattr(agent, "_last_memory_context_unsupported_engine", None) != engine_name:

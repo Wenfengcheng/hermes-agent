@@ -105,6 +105,14 @@ class ContextEngine(ABC):
         ``force`` asks to bypass an engine-owned cooldown; ``memory_context`` is provider
         text for the handoff prompt. Older engines may omit optional parameters — the
         host filters them by signature.
+
+        Engines may explicitly name an optional ``host_state=None`` keyword to
+        receive a detached snapshot: ``todos`` (current TodoStore items), ``goal``
+        (active goal's text, status, rendered contract and subgoals, or None),
+        and ``plan_path`` (currently None). Mutating it cannot update host state.
+        Unavailable sources use empty/None values. This is observational state,
+        not a continuation instruction (an active goal may be waiting).
+        Generic **kwargs wrappers do not opt in; the built-in call is unchanged.
         """
 
     def prune_tool_results_only(
