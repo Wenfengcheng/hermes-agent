@@ -2025,6 +2025,18 @@ def _validate_cached_context_length(model: str, base_url: str, cached: int, *, a
     # (#63122). Non-local endpoints preserve the existing GGUF-first behavior.
     if is_local_endpoint(base_url):
         return _reconcile_local_cached_context_length(model, base_url, cached, api_key=api_key)
+    # Remote custom routes may be aliases whose backing deployment changes (#133606).
+    # Reuse the bounded /models memo rather than letting a scalar disk entry suppress
+    # revalidation forever. Keep the last known window when the catalog is unavailable.
+    if _is_custom_endpoint(base_url) and not _is_known_provider_base_url(base_url):
+        try:
+            live = _resolve_endpoint_context_length(model, base_url, api_key=api_key)
+        except Exception:
+            live = None
+        if type(live) is int and live > 0:
+            if live != cached:
+                save_context_length(model, base_url, live)
+            return live
     return cached
 
 
