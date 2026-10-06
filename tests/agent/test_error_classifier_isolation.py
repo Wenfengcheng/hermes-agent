@@ -13,7 +13,10 @@ from tests.agent.classifier_fixtures import _builtin_only_plugins  # noqa: F401
 def test_builtin_registry_is_fresh_and_does_not_discover(case):
     manager = get_plugin_manager()
     assert manager._hooks == {}
-    with patch.object(manager, "discover_and_load", wraps=manager.discover_and_load) as discover:
+    with patch.object(
+        manager, "_discover_and_load_inner", wraps=manager._discover_and_load_inner
+    ) as discover:
+        manager.discover_and_load()
         result = classify_api_error(Exception("unrecognized synthetic failure"))
     assert result.reason is FailoverReason.unknown
     assert discover.call_count == 0
