@@ -1221,8 +1221,9 @@ def _route_explicit_provider(st: _Switch) -> Optional[ModelSwitchResult]:
         return st.fail(_unknown_provider_message(st.explicit_provider))
 
     st.target_provider, st.provider_label = pdef.id, pdef.name  # label is re-derived in the credential step
-    if st.target_provider == "moa" and not st.new_model:
-        st.new_model = _moa_default_preset()
+    if st.target_provider == "moa":
+        st.new_model = st.new_model or _moa_default_preset()
+        return None  # Explicit virtual-provider picks name presets, not ordinary model aliases.
 
     agg_err = _aggregator_alias_error(
         st.explicit_provider, st.target_provider, st.current_provider, st.user_providers, st.custom_providers)
@@ -1339,11 +1340,18 @@ def _route_configured_provider(st: _Switch) -> Optional[ModelSwitchResult] | boo
 
 
 def _route_from_model_input(st: _Switch) -> Optional[ModelSwitchResult]:
-    """PATH B (no ``--provider``): MoA preset / alias on the current provider (a) -> alias
-    fallback (b) or ``vendor:model`` conversion (c) -> aggregator catalog search (d) ->
+    """PATH B (no ``--provider``): configured alias -> MoA preset / catalog alias (a) ->
+    alias fallback (b) or ``vendor:model`` conversion (c) -> aggregator catalog search (d) ->
     configured-provider match (d.5) -> detect_provider_for_model() as last resort (e)."""
     from hermes_cli.models import detect_provider_for_model
     raw_input, current_provider = st.raw_input, st.current_provider
+    _ensure_direct_aliases()
+    key = raw_input.strip().lower()
+    direct = DIRECT_ALIASES.get(key)
+    if direct is not None:
+        # Explicit profile aliases outrank implicit preset names, including the shipped default.
+        st.target_provider, st.new_model, st.resolved_alias = direct.provider, direct.model, key
+        return None
     try:
         from hermes_cli.config import load_config
         from hermes_cli.moa_config import exact_moa_preset_name, normalize_moa_config
