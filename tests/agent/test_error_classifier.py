@@ -15,8 +15,8 @@ from agent.error_classifier import (
     _extract_error_code,
     _classify_402,
 )
+from tests.agent.classifier_fixtures import _builtin_only_plugins  # noqa: F401
 from tests.hermes_cli.anon_portal import make_jwt
-
 
 # ── Helper: mock API errors ────────────────────────────────────────────
 
