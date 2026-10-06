@@ -1787,6 +1787,22 @@ class TestRetryAfterCap:
     This covers rate-limit headers (#26293) and retryable 5xx responses.
     """
 
+    @pytest.fixture(autouse=True)
+    def _no_bundled_discovery(self, _hermetic_environment, monkeypatch):
+        """Retry policy tests need real hook dispatch, not bundled plugins."""
+        from hermes_cli import plugins
+
+        manager = plugins.PluginManager()
+        manager._discovered = True
+        monkeypatch.setattr(plugins, "_plugin_manager", manager)
+        original = plugins.PluginManager._discover_and_load_inner
+        with patch.object(
+            plugins.PluginManager, "_discover_and_load_inner", autospec=True,
+            side_effect=original,
+        ) as discover:
+            yield
+        assert discover.call_count == 0
+
     @staticmethod
     def _retryable_error(status_code, headers, body=None):
         """A provider error carrying optional Retry-After surfaces."""
