@@ -204,3 +204,42 @@ def test_detached_dispatch_preserves_middleware_and_redispatch(monkeypatch, tmp_
     assert [name for name, _ in events] == ["pre_tool_call", "post_tool_call"]
     assert all(event["detached"] is detached for _, event in events)
     assert all(event["tool_name"] == "read_file" for _, event in events)
+
+
+@pytest.mark.parametrize("origin", ["background_review", "side_question"])
+def test_real_cache_parity_fork_attributes_tool_activity(monkeypatch, tmp_path, origin):
+    """The actual fork factory, not a manually flagged stub, supplies attribution."""
+    from unittest.mock import patch
+    from run_agent import AIAgent
+    from agent.background_review import build_cache_parity_fork
+    from hermes_cli import plugins
+
+    with patch("agent.process_bootstrap.OpenAI"), patch("hermes_cli.config.load_config", return_value={}):
+        parent = AIAgent(model="test/model", api_key="test-key", base_url="http://127.0.0.1:1/v1",
+                         quiet_mode=True, skip_context_files=True, skip_memory=True)
+        parent.tools = [{"type": "function", "function": {"name": "read_file"}}]
+        parent.valid_tool_names = {"read_file"}
+        parent._cached_system_prompt = "stable parent prefix"
+        fork, _, routed = build_cache_parity_fork(parent, max_iterations=1, write_origin=origin)
+
+    events = []
+    def hook(name, **kwargs):
+        if name in {"pre_tool_call", "post_tool_call"}:
+            events.append((name, kwargs))
+        return []
+
+    monkeypatch.setattr(plugins, "invoke_hook", hook)
+    monkeypatch.setattr(plugins, "has_hook", lambda name: True)
+    for index, agent in enumerate((parent, fork, parent)):
+        # Separate inputs avoid the intentional per-session read deduplication;
+        # this contract concerns activity attribution, not file-cache isolation.
+        fixture = tmp_path / f"fork-input-{index}.txt"
+        fixture.write_text("real fork fixture", encoding="utf8")
+        result = invoke_tool(agent, "read_file", {"path": str(fixture)}, "task", "call")
+        assert "real fork fixture" in result
+    assert [event["detached"] for _, event in events] == [False, False, True, True, False, False]
+    assert all(event["session_id"] == parent.session_id for _, event in events)
+    assert not routed
+    assert fork._cached_system_prompt == parent._cached_system_prompt == "stable parent prefix"
+    assert fork.tools == parent.tools
+    assert fork.tools is not parent.tools
