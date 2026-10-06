@@ -2573,6 +2573,7 @@ def _pre_tool_block_message(agent, function_name, function_args, effective_task_
             turn_id=getattr(agent, "_current_turn_id", "") or "",
             api_request_id=getattr(agent, "_current_api_request_id", "") or "",
             middleware_trace=list(middleware_trace),
+            detached=bool(getattr(agent, "_persist_disabled", False)),
         )
         return block_message, (modified_args if modified_args is not None else function_args)
     except Exception:
@@ -2649,6 +2650,7 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                 enabled_toolsets=getattr(agent, "enabled_toolsets", None),
                 disabled_toolsets=getattr(agent, "disabled_toolsets", None),
                 tool_request_middleware_trace=list(_tool_middleware_trace),
+                detached=bool(getattr(agent, "_persist_disabled", False)),
             )
             if skip_tool_execution_middleware:
                 dispatch_kwargs["skip_tool_execution_middleware"] = True

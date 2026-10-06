@@ -653,10 +653,13 @@ class _CallIds:
     tool_call_id: Optional[str] = None
     turn_id: Optional[str] = None
     api_request_id: Optional[str] = None
+    detached: bool = False
 
     def hook_kwargs(self) -> Dict[str, str]:
         """Same fields with None -> "" (hook/middleware wire contract)."""
-        return {k: v or "" for k, v in asdict(self).items()}
+        # Middleware consumes these identity fields too; do not widen its
+        # callback signature with lifecycle-only metadata.
+        return {k: v or "" for k, v in asdict(self).items() if k != "detached"}
 
 
 def _tool_result_observer_fields(tool_name: str, result: Any) -> tuple[str, Optional[str], Optional[str]]:
@@ -683,6 +686,7 @@ def _emit_post_tool_call_hook(
     turn_id: Optional[str] = None, api_request_id: Optional[str] = None, duration_ms: int = 0,
     status: Optional[str] = None, error_type: Optional[str] = None, error_message: Optional[str] = None,
     middleware_trace: Optional[List[Dict[str, Any]]] = None,
+    detached: bool = False,
 ) -> None:
     """Emit the ``post_tool_call`` observer hook; gated on has_hook, and ok/error
     fields are derived from the result only past that gate when status is None."""
@@ -697,6 +701,7 @@ def _emit_post_tool_call_hook(
         invoke_hook(
             "post_tool_call", tool_name=function_name, args=function_args, result=result,
             **_CallIds(task_id, session_id, tool_call_id, turn_id, api_request_id).hook_kwargs(),
+            detached=detached,
             duration_ms=duration_ms, status=status, error_type=error_type, error_message=error_message,
             middleware_trace=list(middleware_trace or []),
         )
@@ -782,6 +787,7 @@ def _pre_dispatch_guards(function_name: str, function_args: Dict[str, Any], skip
             from hermes_cli.plugins import _dispatch_pre_tool_call_hooks
             block_message, modified_args = _dispatch_pre_tool_call_hooks(
                 function_name, function_args, middleware_trace=list(middleware_trace), **ids.hook_kwargs(),
+                detached=ids.detached,
             )
             if modified_args is not None:
                 function_args = modified_args
@@ -880,6 +886,7 @@ def handle_function_call(
     skip_pre_tool_call_hook: bool = False, skip_tool_request_middleware: bool = False,
     skip_tool_execution_middleware: bool = False, tool_request_middleware_trace: Optional[List[Dict[str, Any]]] = None,
     enabled_toolsets: Optional[List[str]] = None, disabled_toolsets: Optional[List[str]] = None,
+    detached: bool = False,
 ) -> str:
     """Route a tool call through hooks/middleware to the registry; returns a JSON string.
 
@@ -894,7 +901,7 @@ def handle_function_call(
         function_args = {}
     trace = list(tool_request_middleware_trace or [])
     function_name = _LEGACY_TOOL_ALIASES.get(function_name, function_name)
-    ids = _CallIds(task_id, session_id, tool_call_id, turn_id, api_request_id)
+    ids = _CallIds(task_id, session_id, tool_call_id, turn_id, api_request_id, detached)
     start = time.monotonic()
 
     def _emit(result: Any, **extra: Any) -> Any:

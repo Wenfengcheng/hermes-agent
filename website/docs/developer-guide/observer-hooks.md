@@ -67,6 +67,29 @@ behavior-affecting hooks:
 Telemetry plugins should treat these behavior-affecting returns as optional
 compatibility features, not as observability requirements.
 
+## Detached tool activity
+
+`pre_tool_call` and `post_tool_call` carry `detached: bool` (default `false`).
+Internal persistence-disabled forks, including background self-improvement reviews,
+set it to `true`. Their `session_id` remains the parent's correlation ID; the
+marker does not create a new session or promise separate persistent state.
+
+Activity indicators should ignore detached events rather than marking the parent
+busy again after its foreground turn has finished:
+
+```python
+def on_post_tool_call(session_id, detached=False, **kwargs):
+    if detached:
+        return
+    update_foreground_activity(session_id)
+```
+
+Apply the same filter to `pre_tool_call` **observers**. Policy hooks must still
+validate detached calls: blocking, argument modification, approvals, and tool
+scope enforcement continue to run. This is attribution metadata, not permission
+to bypass a guard. Existing narrow callback signatures remain supported. Older
+Hermes hosts omit the field, so consumers should default it to `false`.
+
 ## Correlation IDs
 
 Observer payloads use stable IDs so plugins can join events without relying on

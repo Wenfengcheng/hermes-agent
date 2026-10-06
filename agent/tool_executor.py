@@ -675,6 +675,7 @@ def _pre_tool_block(agent, ref: _ToolCallRef):
             ref.args,
             **tool_hook_ids(agent, ref.task_id, ref.call_id),
             middleware_trace=list(ref.trace),
+            detached=bool(getattr(agent, "_persist_disabled", False)),
         )
         return block_msg, (ref.args if modified_args is None else modified_args)
     except Exception:
@@ -1697,6 +1698,7 @@ def _resolve_sequential_dispatch(agent, ref: _ToolCallRef, messages: list) -> _S
                 tool_request_middleware_trace=list(middleware_trace),
                 enabled_toolsets=getattr(agent, "enabled_toolsets", None),
                 disabled_toolsets=getattr(agent, "disabled_toolsets", None),
+                detached=bool(getattr(agent, "_persist_disabled", False)),
             )
 
     return _SequentialDispatch(

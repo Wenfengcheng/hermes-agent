@@ -50,6 +50,7 @@ def emit_terminal_post_tool_call(
             function_args=function_args,
             result=result,
             **tool_hook_ids(agent, effective_task_id, tool_call_id),
+            detached=bool(getattr(agent, "_persist_disabled", False)),
             duration_ms=duration_ms,
             status=status,
             error_type=error_type,
