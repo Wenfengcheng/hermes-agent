@@ -150,3 +150,57 @@ def register(ctx):
         assert "error" in json.loads(result)
     events = manager._hooks["pre_tool_call"][0].__globals__["events"]
     assert events == [("pre", True), ("legacy", "fixture_recall"), ("post", True)]
+
+
+@pytest.mark.parametrize("detached", [False, True])
+@pytest.mark.parametrize("bridge", [False, True])
+def test_detached_dispatch_preserves_middleware_and_redispatch(monkeypatch, tmp_path, detached, bridge):
+    """Exercise redispatch after resolution; catalog resolution is a separate boundary."""
+    from hermes_cli import plugins
+    import model_tools
+
+    manager = plugins.PluginManager()
+    calls, events = [], []
+    fixture = tmp_path / "fixture.txt"
+    fixture.write_text("middleware selected fixture", encoding="utf8")
+
+    # This pre-existing exact signature must keep running, not fail open when
+    # observer-only metadata is added to a tool call.
+    def middleware(tool_name, args, original_args, task_id, session_id,
+                   tool_call_id, turn_id, api_request_id, telemetry_schema_version,
+                   middleware_schema_version, next_call):
+        calls.append((tool_name, session_id))
+        return next_call({"path": str(fixture)})
+
+    manager._middleware["tool_execution"] = [middleware]
+    monkeypatch.setattr(plugins, "get_plugin_manager", lambda: manager)
+
+    def hook(name, **kwargs):
+        if name in {"pre_tool_call", "post_tool_call"}:
+            events.append((name, kwargs))
+        return []
+
+    monkeypatch.setattr(plugins, "invoke_hook", hook)
+    monkeypatch.setattr(plugins, "has_hook", lambda name: True)
+    if bridge:
+        real_bridge = model_tools._dispatch_bridge_tool
+
+        def resolve(name, args, enabled, disabled):
+            if name == "tool_call":
+                assert enabled == ["file"]
+                assert disabled == ["terminal"]
+                return None, ("read_file", args)
+            return real_bridge(name, args, enabled, disabled)
+
+        monkeypatch.setattr(model_tools, "_dispatch_bridge_tool", resolve)
+
+    result = model_tools.handle_function_call(
+        "tool_call" if bridge else "read_file", {"path": str(tmp_path / "missing")},
+        session_id="parent", detached=detached,
+        enabled_toolsets=["file"], disabled_toolsets=["terminal"],
+    )
+    assert "middleware selected fixture" in result
+    assert calls == [("read_file", "parent")]
+    assert [name for name, _ in events] == ["pre_tool_call", "post_tool_call"]
+    assert all(event["detached"] is detached for _, event in events)
+    assert all(event["tool_name"] == "read_file" for _, event in events)
