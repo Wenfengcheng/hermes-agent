@@ -40,7 +40,7 @@ def _receipt_status(target: str, snapshot: dict) -> str:
                 return "unknown"
         status = receipt.get("status") if receipt else None
         return status if isinstance(status, str) and status in _STATUSES else "unknown"
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RuntimeError):
         # Missing/corrupt/unreadable evidence must never become success or a reason to resend.
         return "unknown"
 

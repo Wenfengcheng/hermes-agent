@@ -92,6 +92,16 @@ def test_unknown_receipt_never_claims_success(tmp_path, monkeypatch, problem):
     assert "still in progress" not in cli._last_run_display(view)
 
 
+def test_profile_resolution_failure_is_unknown(tmp_path, monkeypatch):
+    from hermes_cli.cron_receipts import delivery_display
+    from hermes_cli import profiles
+
+    monkeypatch.setattr(profiles, "get_profile_dir", Mock(side_effect=RuntimeError("Symlink loop")))
+    view = delivery_display(dict(last_status="delivery_queued", last_delivery_queued={
+        "bot-chat:research": {"delivery_id": "a" * 64}}))
+    assert view["_delivery_receipt_summary"] == "unknown"
+
+
 @pytest.mark.parametrize("profile", ["", "../outside", "..\\outside", "a/b", "C:/outside"])
 def test_invalid_target_uses_profile_resolver_boundary(tmp_path, monkeypatch, profile):
     from hermes_cli.cron_receipts import delivery_display
