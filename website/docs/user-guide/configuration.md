@@ -2555,6 +2555,29 @@ streaming:
   fresh_final_after_seconds: 0    # Opt in to fresh final (Telegram) when preview is this old
 ```
 
+:::note Restart after changing gateway streaming
+The gateway loads the top-level `streaming` settings at startup. Saving a change
+(for example, `hermes config set streaming.enabled true`) does **not** update an
+already-running gateway. Restart the gateway that owns the bot, using the same
+profile whose configuration you changed:
+
+```bash
+hermes gateway restart
+# Named profile example (replace mybot with your profile name):
+hermes -p mybot gateway restart
+```
+
+For a foreground `hermes gateway run`, stop it with Ctrl+C and start it again
+with the same profile. If Docker or another external supervisor owns the
+gateway, restart it through that supervisor instead. Changing another profile
+or restarting only the chat session does not reload this gateway's settings.
+
+After the restart, send a new message to check streaming. This reloads the
+configuration; it does not guarantee that a particular Telegram client will
+display native draft previews. The per-platform streaming switches below still
+apply.
+:::
+
 When enabled, the bot sends a message on the first token, then progressively edits it as more tokens arrive. Platforms that don't support message editing (Signal, Email, Home Assistant) are auto-detected on the first attempt — streaming is gracefully disabled for that session with no flood of messages.
 
 For separate natural mid-turn assistant updates without progressive token editing, set `display.interim_assistant_messages: true`.
