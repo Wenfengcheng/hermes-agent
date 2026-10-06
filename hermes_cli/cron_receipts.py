@@ -5,7 +5,7 @@ import re
 
 from hermes_constants import get_hermes_home
 
-_RECEIPT_ID = re.compile(r"[0-9a-f]{64}")
+_RECEIPT_ID = re.compile(r"[0-9a-f]{32,64}")
 _STATUSES = frozenset({"queued", "claimed", "settled", "failed", "cancelled", "ambiguous", "suppressed"})
 
 

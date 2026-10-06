@@ -8,14 +8,15 @@ from hermes_cli import cron as cli
 from tools import bot_live_delivery as mailbox
 
 
-def test_list_reads_settled_receipt_without_rewriting_job(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("key_length", [32, 64])
+def test_list_reads_settled_receipt_without_rewriting_job(tmp_path, monkeypatch, capsys, key_length):
     from cron import jobs
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     owner = dict(profile_home=str(tmp_path.resolve()), session_id="bot", lease_id="lease",
                  live_session_id="live")
-    key = "a" * 64
+    key = "a" * key_length
     mailbox.deliver_to_live_owner(tmp_path, owner, "payload", delivery_id=key)
     mailbox.claim_pending_delivery(tmp_path, owner)
     mailbox.complete_delivery(tmp_path, key, status="settled", reply="done")
@@ -89,6 +90,20 @@ def test_unknown_receipt_never_claims_success(tmp_path, monkeypatch, problem):
         "bot-chat:(own)": {"delivery_id": key, "status": "queued"}}))
     assert view["_delivery_receipt_summary"] == "unknown"
     assert "still in progress" not in cli._last_run_display(view)
+
+
+@pytest.mark.parametrize("profile", ["", "../outside", "..\\outside", "a/b", "C:/outside"])
+def test_invalid_target_uses_profile_resolver_boundary(tmp_path, monkeypatch, profile):
+    from hermes_cli.cron_receipts import delivery_display
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    read = Mock(side_effect=AssertionError("invalid profile must not reach mailbox"))
+    monkeypatch.setattr(mailbox, "read_delivery_result", read)
+    view = delivery_display(dict(last_status="delivery_queued", last_delivery_queued={
+        f"bot-chat:{profile}": {"delivery_id": "a" * 64}}))
+    assert view["_delivery_receipt_summary"] == "unknown"
+    read.assert_not_called()
 
 
 def test_empty_projection_preserves_job():
