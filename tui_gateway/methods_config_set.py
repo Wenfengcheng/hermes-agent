@@ -187,13 +187,22 @@ def _set_fast(rid, params, key, value, session):
         from hermes_cli.models import resolve_fast_mode_overrides
         if agent is not None:
             target_model = getattr(agent, "model", None)
-        else:  # a pre-build session may carry a picked model (desktop draft): validate against THAT
-            session_override = (session or {}).get("model_override") or {}
-            target_model = (isinstance(session_override, dict) and session_override.get("model")) or _resolve_model()
+            provider, base_url = getattr(agent, "provider", None), getattr(agent, "base_url", None)
+        else:
+            # A deferred session has no agent attributes yet. Resolve the same
+            # picked/persisted route its build will use, rather than admitting
+            # Fast solely because the model name supports it (#101513).
+            try:
+                with _session_profile_runtime_scope(session or {}):
+                    build = _deferred_build_agent_kwargs(session or {}, None)
+                    target_model, runtime = _resolve_agent_model_runtime(
+                        build.get("model_override"), build.get("provider_override"))
+                provider, base_url = runtime.get("provider"), runtime.get("base_url")
+            except Exception:
+                return _err(rid, 4002, f"{nv} mode is not available without a resolved model route")
         if not target_model:
             return _err(rid, 4002, "fast mode is not available without a selected model")
-        overrides = resolve_fast_mode_overrides(target_model, provider=getattr(agent, "provider", None),
-                                                base_url=getattr(agent, "base_url", None),
+        overrides = resolve_fast_mode_overrides(target_model, provider=provider, base_url=base_url,
                                                 tier="ultrafast" if nv == "ultrafast" else None)
         if overrides is None:
             return _err(rid, 4002, f"{nv} mode is not available for this model")
