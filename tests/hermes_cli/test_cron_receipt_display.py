@@ -61,7 +61,7 @@ def test_receipt_projection_uses_target_home_and_preserves_failure(tmp_path, mon
     assert "_delivery_receipt_statuses" not in job
 
 
-@pytest.mark.parametrize("problem", ["missing", "corrupt", "permission", "bad_id"])
+@pytest.mark.parametrize("problem", ["missing", "corrupt", "permission", "bad_id", "incomplete", "wrong_home"])
 def test_unknown_receipt_never_claims_success(tmp_path, monkeypatch, problem):
     from hermes_cli.cron_receipts import delivery_display
 
@@ -71,6 +71,16 @@ def test_unknown_receipt_never_claims_success(tmp_path, monkeypatch, problem):
         path = tmp_path / "runtime" / "bot_live_delivery" / f"{key}.json"
         path.parent.mkdir(parents=True)
         path.write_text("not json", encoding="utf8")
+    if problem in ("incomplete", "wrong_home"):
+        import json
+        path = tmp_path / "runtime" / "bot_live_delivery" / f"{key}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {"status": "settled"}
+        if problem == "wrong_home":
+            record.update(id=key, delivery_id=key, created_at=1, sequence=1,
+                          owner=dict(profile_home=str(tmp_path / "other"), session_id="bot",
+                                     lease_id="lease", live_session_id="live"))
+        path.write_text(json.dumps(record), encoding="utf8")
     if problem == "permission":
         monkeypatch.setattr(mailbox, "read_delivery_result", Mock(side_effect=PermissionError("denied")))
     if problem == "bad_id":
@@ -86,3 +96,22 @@ def test_empty_projection_preserves_job():
 
     job = dict(last_status="ok", last_delivery_queued=None)
     assert delivery_display(job) is job
+
+
+@pytest.mark.parametrize("status", ["queued", "claimed", "settled", "ambiguous", "suppressed", "transferred"])
+def test_deferred_receipt_is_read_without_drain(tmp_path, monkeypatch, status):
+    import json
+    from cron import bot_chat_delivery
+    from hermes_cli.cron_receipts import delivery_display
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    key = "d" * 64
+    record = bot_chat_delivery.defer(key, {"id": "weekly"}, "payload", "", tmp_path)
+    record["status"] = status
+    path = tmp_path / "cron" / "bot_chat_pending" / f"{key}.json"
+    path.write_text(json.dumps(record), encoding="utf8")
+    before = path.read_bytes()
+    view = delivery_display(dict(last_status="delivery_queued", last_delivery_queued={
+        "bot-chat:(own)": {"delivery_id": key, "status": "queued"}}))
+    assert view["_delivery_receipt_summary"] == ("unknown" if status == "transferred" else status)
+    assert path.read_bytes() == before

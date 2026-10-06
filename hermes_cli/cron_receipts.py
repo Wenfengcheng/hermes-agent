@@ -11,7 +11,8 @@ _STATUSES = frozenset({"queued", "claimed", "settled", "failed", "cancelled", "a
 
 def _receipt_status(target: str, snapshot: dict) -> str:
     from hermes_cli.profiles import get_profile_dir
-    from tools.bot_live_delivery import read_delivery_result
+    from tools.bot_live_delivery import read_delivery_result, _ticket_shape_error
+    from pathlib import Path
     from cron.bot_chat_delivery import read_pending
 
     key = snapshot.get("delivery_id")
@@ -23,12 +24,18 @@ def _receipt_status(target: str, snapshot: dict) -> str:
     try:
         home = get_hermes_home() if profile == "(own)" else get_profile_dir(profile)
         receipt = read_delivery_result(home, key)
-        if receipt is None:
+        if receipt is not None:
+            if (_ticket_shape_error(Path(f"{key}.json"), receipt) is not None
+                    or Path(receipt["owner"]["profile_home"]).resolve() != home.resolve()):
+                return "unknown"
+        else:
             # Deferred no-agent deliveries live at the producer, not the target. Their
             # pinned home must agree before treating that record as this target's receipt.
-            from pathlib import Path
             receipt = read_pending(key)
-            if receipt is not None and Path(receipt.get("home", "")).resolve() != home.resolve():
+            if receipt is not None and (
+                receipt.get("id") != key or not isinstance(receipt.get("home"), str)
+                or not receipt["home"] or Path(receipt["home"]).resolve() != home.resolve()
+            ):
                 return "unknown"
         status = receipt.get("status") if receipt else None
         return status if isinstance(status, str) and status in _STATUSES else "unknown"
