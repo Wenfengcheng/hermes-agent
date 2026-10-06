@@ -196,6 +196,11 @@ def _set_fast(rid, params, key, value, session):
             # picked/persisted route its build will use, rather than admitting
             # Fast solely because the model name supports it (#101513).
             try:
+                from hermes_constants import get_hermes_home
+                # An explicit RPC profile must not override the selected
+                # session's identity while resolving its future build.
+                if get_hermes_home().resolve() != Path(session.get("profile_home") or _hermes_home).resolve():
+                    return _err(rid, 4002, "fast mode profile does not match the session")
                 # config.set's _profile_scoped wrapper already bound the route
                 # scope, including externally hydrated credentials.
                 build = _deferred_build_agent_kwargs(session or {}, None)

@@ -119,6 +119,22 @@ def test_global_default_does_not_resolve_credentials(monkeypatch, params):
     assert writes == [("agent.service_tier", "fast")]
 
 
+def test_explicit_foreign_profile_cannot_resolve_session_route(monkeypatch, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.setattr(server, "_profile_home", lambda name: other)
+    def forbidden(*args):
+        raise AssertionError("must reject before resolving another profile's credentials")
+    monkeypatch.setattr(server, "_resolve_agent_model_runtime", forbidden)
+    session = {"agent": None, "profile_home": str(tmp_path), "create_service_tier_override": ""}
+    monkeypatch.setitem(server._sessions, "route-test", session)
+    response = server.handle_request({"id": "foreign", "method": "config.set", "params": {
+        "profile": "other", "session_id": "route-test", "key": "fast", "value": "fast"}})
+    assert response.get("error", {}).get("code") == 4002, response
+    assert "does not match" in response["error"]["message"]
+    assert session["create_service_tier_override"] == ""
+
+
 def test_empty_resolved_model_is_rejected(monkeypatch):
     monkeypatch.setattr(server, "_resolve_agent_model_runtime", lambda *args: ("", {"provider": "openai-api"}))
     session = {"agent": None}
