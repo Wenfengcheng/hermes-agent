@@ -2558,19 +2558,19 @@ streaming:
 :::note Restart after changing gateway streaming
 The gateway loads the top-level `streaming` settings at startup. Saving a change
 (for example, `hermes config set streaming.enabled true`) does **not** update an
-already-running gateway. Restart the gateway that owns the bot, using the same
-profile whose configuration you changed:
+already-running gateway. Restart the gateway process that owns the bot. With
+the default host gateway (which can serve multiple profiles), use:
 
 ```bash
-hermes gateway restart
-# Named profile example (replace mybot with your profile name):
-hermes -p mybot gateway restart
+hermes --profile default gateway restart
 ```
 
-For a foreground `hermes gateway run`, stop it with Ctrl+C and start it again
-with the same profile. If Docker or another external supervisor owns the
-gateway, restart it through that supervisor instead. Changing another profile
-or restarting only the chat session does not reload this gateway's settings.
+Keep the configuration change in the profile whose settings you intend to
+change, but target the **owning gateway**, not a separate gateway for each bot
+profile. For a foreground `hermes gateway run`, stop it with Ctrl+C and start
+it again with its original launch profile. If Docker or another external
+supervisor owns the gateway, restart it through that supervisor instead.
+Restarting only the chat session does not reload the gateway's settings.
 
 After the restart, send a new message to check streaming. This reloads the
 configuration; it does not guarantee that a particular Telegram client will
