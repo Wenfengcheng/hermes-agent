@@ -344,8 +344,10 @@ _MOA_ADAPTER_SHAPE_BUGS = (
 _PROVIDER_POLICY_BLOCKED_PATTERNS = (
     "no endpoints available matching your guardrail", "no endpoints available matching your data policy",
     "no endpoints found matching your data policy",
-    # OpenRouter's routing-funnel summary now prefixes the available count.
-    "are available matching your guardrail", "are available matching your data policy",
+)
+# Only zero eligible endpoints establish a block; a positive count is not a refusal.
+_PROVIDER_POLICY_ZERO_ENDPOINTS = re.compile(
+    r"\b0 endpoints out of \d+ requested are available matching your (?:guardrail|data policy)\b"
 )
 
 # Upstream account ban relayed by an aggregator, often as HTTP 200 + an SSE error
@@ -1042,6 +1044,8 @@ def _status_404(c: _Ctx) -> Verdict:
     verdict = _first_match(c.msg, _404_RULES)
     if verdict is not None:
         return verdict
+    if _PROVIDER_POLICY_ZERO_ENDPOINTS.search(c.msg):
+        return _V_POLICY_BLOCKED
     # Bare id the catalogue only knows prefixed → malformed id (NVIDIA NIM "404
     # page not found", #78796). A generic 404 (wrong path, proxy glitch) stays
     # unknown so the real error surfaces instead of a silent misreported fallback.

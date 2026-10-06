@@ -30,6 +30,8 @@ def test_policy_404_uses_existing_nonretryable_fallback_verdict(message):
 @pytest.mark.parametrize("message", [
     "Not Found", "No endpoints found for vendor/model.",
     "No endpoints available", "guardrail service not found",
+    "2 endpoints out of 3 requested are available matching your data policy.",
+    "10 endpoints out of 30 requested are available matching your guardrail restrictions.",
 ])
 def test_unqualified_404_keeps_existing_unknown_verdict(message):
     error = openai.NotFoundError(message, response=httpx.Response(
