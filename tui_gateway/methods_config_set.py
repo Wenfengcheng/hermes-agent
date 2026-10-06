@@ -199,7 +199,7 @@ def _set_fast(rid, params, key, value, session):
                 from hermes_constants import get_hermes_home
                 # An explicit RPC profile must not override the selected
                 # session's identity while resolving its future build.
-                if get_hermes_home().resolve() != Path(session.get("profile_home") or _hermes_home).resolve():
+                if get_hermes_home().resolve() != Path(session.get("profile_home") or _launch_home()).resolve():
                     return _err(rid, 4002, "fast mode profile does not match the session")
                 # config.set's _profile_scoped wrapper already bound the route
                 # scope, including externally hydrated credentials.

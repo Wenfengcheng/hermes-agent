@@ -15,7 +15,6 @@ def request(session, value="fast"):
 
 @pytest.fixture(autouse=True)
 def isolated_route(monkeypatch, tmp_path):
-    monkeypatch.setattr(server, "_hermes_home", tmp_path)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-not-a-real-key")
     monkeypatch.setenv("OPENROUTER_API_KEY", "fixture-not-a-real-key")
