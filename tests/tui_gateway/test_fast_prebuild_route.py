@@ -67,6 +67,25 @@ def test_fallback_route_controls_admission(monkeypatch):
     assert session["create_service_tier_override"] == "priority"
 
 
+def test_profile_scope_is_not_reentered(monkeypatch):
+    import contextlib
+    from hermes_constants import get_hermes_home
+
+    seen = []
+    original = server._session_profile_runtime_scope
+
+    @contextlib.contextmanager
+    def record_scope(session, **kwargs):
+        seen.append(session.get("profile_home"))
+        with original(session, **kwargs):
+            yield
+
+    monkeypatch.setattr(server, "_session_profile_runtime_scope", record_scope)
+    session = {"agent": None, "profile_home": str(get_hermes_home())}
+    assert request(session)["result"]["value"] == "fast"
+    assert seen == [session["profile_home"]]
+
+
 def test_resolution_exception_preserves_pin(monkeypatch):
     def unavailable(*args):
         raise RuntimeError("unavailable")

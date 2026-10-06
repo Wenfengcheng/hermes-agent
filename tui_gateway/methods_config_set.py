@@ -193,10 +193,11 @@ def _set_fast(rid, params, key, value, session):
             # picked/persisted route its build will use, rather than admitting
             # Fast solely because the model name supports it (#101513).
             try:
-                with _session_profile_runtime_scope(session or {}):
-                    build = _deferred_build_agent_kwargs(session or {}, None)
-                    target_model, runtime = _resolve_agent_model_runtime(
-                        build.get("model_override"), build.get("provider_override"))
+                # config.set's _profile_scoped wrapper already bound the route
+                # scope, including externally hydrated credentials.
+                build = _deferred_build_agent_kwargs(session or {}, None)
+                target_model, runtime = _resolve_agent_model_runtime(
+                    build.get("model_override"), build.get("provider_override"))
                 provider, base_url = runtime.get("provider"), runtime.get("base_url")
             except Exception:
                 return _err(rid, 4002, f"{nv} mode is not available without a resolved model route")
