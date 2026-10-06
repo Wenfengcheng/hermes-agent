@@ -328,6 +328,74 @@ def test_idle_phase_policy_is_narrow_and_preserves_operator_overrides(
     assert (watchdogs.progress_timeout > 0) is requires_progress
 
 
+@pytest.mark.parametrize("has_payload", [True, False])
+def test_completed_item_switches_first_progress_to_idle_phase(tmp_path, monkeypatch, has_payload):
+    """A late .done buys the idle budget, not another first-progress budget.
+
+    Synchronize a real worker with the polling thread and advance only the
+    request clock; no wall-clock sleeps or live provider are required.
+    """
+    import threading
+    from agent import chat_completion_helpers as h
+    from agent import codex_runtime
+
+    agent = _make_codex_agent(tmp_path, monkeypatch)
+    kwargs = {"model": "gpt-5.6-sol", "input": "x" * 40_004}
+    wd = h._resolve_nonstream_watchdogs(agent, kwargs)
+    assert wd.idle_requires_progress and wd.progress_timeout > 0
+    now = [1000.0]
+    clock = SimpleNamespace(time=lambda: now[0])
+    monkeypatch.setattr(h, "time", clock)
+    monkeypatch.setattr(codex_runtime, "time", clock)
+    ready, release = threading.Event(), threading.Event()
+    real_thread = threading.Thread
+    closes = []
+
+    def stream_attempt():
+        now[0] += wd.progress_timeout - 1
+        yield SimpleNamespace(type="response.output_item.done", item=SimpleNamespace(
+            type="message", content=[SimpleNamespace(type="output_text", text="done" if has_payload else "")]))
+        ready.set()  # The real assembler and progress callback have run.
+        assert release.wait(10), "poller did not release the fixture stream"
+        yield SimpleNamespace(type="response.completed", response=SimpleNamespace(status="completed"))
+
+    class CoordinatedThread:
+        def __init__(self, *, target, daemon):
+            self.worker = real_thread(target=target, daemon=daemon)
+            self.polled = False
+
+        def start(self):
+            self.worker.start()
+
+        def is_alive(self):
+            return self.worker.is_alive()
+
+        def join(self, timeout=None):
+            if not self.polled:
+                assert ready.wait(10), "stream did not reach its completed item"
+                self.polled = True
+                now[0] += 2  # Past first-progress deadline; inside event-idle budget.
+            else:
+                release.set()
+                self.worker.join(10)
+                assert not self.worker.is_alive()
+
+    _install_codex_event_stream(agent, monkeypatch, stream_attempt, closes)
+    monkeypatch.setattr(h.threading, "Thread", CoordinatedThread)
+    try:
+        if has_payload:
+            result = h.interruptible_api_call(agent, kwargs)
+            assert result.output[0].content[0].text == "done"
+            assert "codex_progress_kill" not in closes
+            assert "codex_stream_idle_kill" not in closes
+        else:
+            with pytest.raises(TimeoutError, match="no substantive model progress"):
+                h.interruptible_api_call(agent, kwargs)
+            assert "codex_progress_kill" in closes
+    finally:
+        release.set()
+
+
 def test_lifecycle_event_does_not_restart_first_progress_deadline():
     """The budget belongs to the physical attempt, not to the first lifecycle frame."""
     from agent import chat_completion_wait_notice as wn
