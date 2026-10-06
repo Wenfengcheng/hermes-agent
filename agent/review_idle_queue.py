@@ -3,8 +3,8 @@
 On the managed llama-server the post-turn review fork monopolizes the GPU the next prompt
 needs and the next live turn cancels it (decode cost paid, learning lost). Reviews bound for
 the managed endpoint are therefore queued and dispatched when the machine is quiet
-(``auxiliary.background_review.defer``: ``auto`` = exactly that case, ``never`` = old behavior;
-explicit /refine never defers). One slot per session, newest snapshot wins (a review replays
+(``auxiliary.background_review.defer``: ``auto`` = exactly that case, ``always`` = process-quiet
+for any runtime without probing the GPU, ``never`` = old behavior; explicit /refine never defers). One slot per session, newest snapshot wins (a review replays
 the whole conversation, so coalescing is dedup, not loss); aged-out items (defer_max_age_s,
 default 30 min) dispatch regardless of idleness; in-memory best-effort like the immediate
 fork. Idle truth is the supervisor's /slots held for a settle window.
@@ -29,9 +29,9 @@ _MAX_AGE_DEFAULT_S = 30.0 * 60.0  # dispatch regardless of idleness past this ag
 
 
 def defer_mode(task_cfg: Optional[Dict[str, Any]]) -> str:
-    """'auto' (default) or 'never' from auxiliary.background_review.defer."""
+    """'auto' (managed GPU), 'always' (process quiet), or 'never'."""
     raw = str((task_cfg or {}).get("defer", "auto")).strip().lower()
-    return raw if raw in ("auto", "never") else "auto"
+    return raw if raw in ("auto", "always", "never") else "auto"
 
 
 def defer_max_age_s(task_cfg: Optional[Dict[str, Any]]) -> float:
@@ -132,14 +132,28 @@ class ReviewIdleQueue:
             aged = [p for p in self._pending.values()
                     if now - p.enqueued_at >= defer_max_age_s(p.kwargs.get("task_cfg"))]
             candidate = min(aged, key=lambda p: p.enqueued_at) if aged else None
-        if candidate is None and (self._quiet_for() < _IDLE_SETTLE_S or not self._server_idle()):
-            return None
+        if candidate is None:
+            if self._quiet_for() < _IDLE_SETTLE_S:
+                return None
+            with self._lock:
+                pending = sorted(self._pending.values(), key=lambda p: p.enqueued_at)
+            server_idle = None
+            for item in pending:
+                if defer_mode(item.kwargs.get("task_cfg")) == "always":
+                    candidate = item
+                    break
+                if server_idle is None:
+                    server_idle = self._server_idle()
+                if server_idle:
+                    candidate = item
+                    break
+            if candidate is None or self._quiet_for() < _IDLE_SETTLE_S:
+                return None
         with self._lock:
-            if candidate is None:
-                if not self._pending:
-                    return None
-                candidate = min(self._pending.values(), key=lambda p: p.enqueued_at)
-            return self._pending.pop(candidate.session_key, None)
+            # A coalesced replacement must be evaluated with its own scheduling policy.
+            if self._pending.get(candidate.session_key) is not candidate:
+                return None
+            return self._pending.pop(candidate.session_key)
 
     def _run(self) -> None:
         while True:

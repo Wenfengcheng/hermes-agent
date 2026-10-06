@@ -197,9 +197,10 @@ def _positive_int(value: Any) -> Optional[int]:
 
 
 def _review_should_defer(agent: Any, task_cfg: Optional[Dict[str, Any]]) -> bool:
-    """True when an automatic background review targets the managed local runtime under ``defer: auto``."""
+    """Opt-in process-idle scheduling, or managed-local GPU scheduling under ``auto``."""
     from agent.review_idle_queue import defer_mode, review_targets_managed_local
-    return defer_mode(task_cfg) == "auto" and review_targets_managed_local(agent, task_cfg)
+    mode = defer_mode(task_cfg)
+    return mode == "always" or (mode == "auto" and review_targets_managed_local(agent, task_cfg))
 
 
 def _review_queue_key(agent: Any) -> str:
@@ -789,8 +790,8 @@ class AIAgent(
                                  review_skills: bool = False, focus: Optional[str] = None, explicit: bool = False) -> None:
         """Post-turn review entry point: decide WHEN, then spawn.
 
-        A review whose runtime is the MANAGED LOCAL llama-server is queued for machine idle (``defer: auto``)
-        instead of hitting the user's GPU mid-session; everything else spawns immediately. ``explicit``
+        ``defer: auto`` queues managed-local reviews for machine idle. ``defer: always`` queues
+        any runtime for process quiet; ``never`` and other runtimes under ``auto`` spawn immediately. ``explicit``
         (/refine) is never deferred but does not touch the ``focus``-keyed delegate/enabled gates.
         """
         # Gates run at enqueue/spawn time; the idle dispatcher re-checks `enabled` at dispatch time.

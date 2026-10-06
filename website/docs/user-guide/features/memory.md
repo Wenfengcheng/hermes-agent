@@ -459,14 +459,19 @@ execution moment moves.
 ```yaml
 auxiliary:
   background_review:
-    defer: auto            # auto (default) | never
+    defer: auto            # auto (default) | always | never
     defer_max_age_s: 1800  # run a queued review anyway after this long
 ```
 
 | Value | Behaviour |
 |-------|-----------|
 | `auto` (default) | Reviews whose runtime resolves to the managed local server are queued and run at idle; every other runtime (cloud, external servers) spawns immediately as before. |
+| `always` | Queue automatic reviews on any provider until this process has no live turns for 15 seconds. Unlike `auto`, this checks process quiet only, not managed GPU slots. Useful for cloud-backed Desktop/gateway hosts where reviews compete with live work. |
 | `never` | Old behavior everywhere: spawn immediately at turn end, even on the managed local GPU. |
+
+`always` delays review launch; it is not a lock against future turns or work in
+other processes, and the maximum-age override still permits a launch while busy.
+It does not change subagent completion or guarantee Desktop RPC latency.
 
 Queued reviews coalesce per session (a newer turn's snapshot replaces the
 older one — the review replays the whole conversation, so nothing is lost),

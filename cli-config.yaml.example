@@ -988,6 +988,8 @@ prompt_caching:
 #   # Usage is recorded under session_model_usage task='background_review'.
 #   background_review:
 #     enabled: true            # false = skip automatic forks (/refine still works)
+#     defer: auto              # auto = managed GPU idle; always = process quiet; never = immediate
+#     defer_max_age_s: 1800     # Dispatch even if still busy after this age
 #     provider: "auto"         # or pin a cheaper model (see memory.md)
 #     model: ""
 
