@@ -342,7 +342,14 @@ function shouldSkipElement(el: Element): boolean {
     return true
   }
 
-  if (el.closest('[role="search"]')) {
+  // Find highlights replace text nodes. Never perform that DOM surgery inside
+  // a draft editor: it invalidates the editor's selection and React-owned text.
+  // Use the same guard for highlighting and the observer's unmarked-match scan.
+  if (
+    el.closest(
+      '[role="search"], [contenteditable=""], [contenteditable="true" i], [contenteditable="plaintext-only" i]'
+    )
+  ) {
     return true
   }
 
