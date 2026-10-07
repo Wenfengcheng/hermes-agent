@@ -1526,8 +1526,11 @@ class SessionMessagesMixin:
     def _fetch_conversation_rows(self, session_ids: List[str], active_clause: str, *, with_session_id: bool):
         """``_CONVERSATION_ROW_COLUMNS`` rows for *session_ids* ORDER BY id (timestamps are not monotonic
         and would break tool-call adjacency)."""
+        with self._read_ctx() as conn:
+            order_column = ("display_order" if "display_order" in self._message_column_names(conn)
+                            else "NULL AS display_order")
         return self._read_all(
-            f"SELECT {'session_id, ' if with_session_id else ''}display_order, {self._CONVERSATION_ROW_COLUMNS} "
+            f"SELECT {'session_id, ' if with_session_id else ''}{order_column}, {self._CONVERSATION_ROW_COLUMNS} "
             f"FROM messages WHERE session_id IN ({_placeholders(session_ids)})"
             f"{active_clause} ORDER BY id", tuple(session_ids))
 
