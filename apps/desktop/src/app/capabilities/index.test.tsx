@@ -126,6 +126,15 @@ afterEach(() => {
 // all 11 tests (2× in a row on PR #93612, plus a main run the same hour).
 // Give this file headroom; the tests are not slow individually.
 describe('CapabilitiesView toolset management', { timeout: 60_000 }, () => {
+  it('discloses partial policy suppression while the surviving toolset stays enabled', async () => {
+    const description = 'web_search, web_extract (partial: web_search disabled by agent.disabled_toolsets)'
+    getToolsets.mockResolvedValue([toolset({ description })])
+    await renderSkills()
+    expect(await screen.findByText(description)).toBeTruthy()
+    const sw = await screen.findByRole('switch', { name: 'Turn Web Search toolset off' })
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+  })
+
   it('renders a switch for each toolset and toggles it off', async () => {
     await renderSkills()
 

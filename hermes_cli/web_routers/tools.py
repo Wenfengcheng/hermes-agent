@@ -232,7 +232,7 @@ async def get_toolsets(profile: Optional[str] = None):
     from hermes_cli.tools_config import (
         _CONFIG_ONLY_TOOLSETS, _get_effective_configurable_toolsets, _get_platform_tools,
         _toolset_configuration_platform, _toolset_has_keys, get_nous_subscription_features,
-        gui_toolset_label)
+        gui_toolset_label, _toolset_policy_note)
     from hermes_cli.platforms import platform_label
     from toolsets import resolve_toolset
     from utils import is_truthy_value
@@ -250,7 +250,14 @@ async def get_toolsets(profile: Optional[str] = None):
             # Credential presence resolves through the profile's secret scope: outside this block
             # it read the dashboard process env (another profile's keys) or fails closed.
             configured = {name: _toolset_has_keys(name, config, features=features) for name, _, _ in toolset_rows}
-        return config, toolset_rows, enabled_by_platform, configured
+            # The same description is rendered in Desktop's list and detail pane.
+            # Resolve policy here: custom toolsets belong to the selected profile.
+            disabled = (config.get("agent") or {}).get("disabled_toolsets")
+            described_rows = []
+            for name, label, desc in toolset_rows:
+                note = _toolset_policy_note(name, disabled)
+                described_rows.append((name, label, f"{desc} ({note})" if note else desc))
+        return config, described_rows, enabled_by_platform, configured
 
     config, toolset_rows, enabled_by_platform, configured = await run_in_threadpool(_read)
     result = []
