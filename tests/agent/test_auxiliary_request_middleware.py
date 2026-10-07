@@ -140,7 +140,17 @@ def test_noncopyable_option_cannot_alias_caller_messages(fixture):
         request["messages"][0]["content"] = "shaped"
         return {"request": request}
     context.register_middleware("llm_request", shape)
-    request = {"messages": [{"role": "user", "content": "original"}], "opaque": Opaque()}
+    request = {"messages": [{"role": "user", "content": "original", "opaque": Opaque()}],
+               "opaque": Opaque(), "extra_body": {"nested": ["original"]},
+               "stream_options": {"include_usage": True}}
+    def mutate_options(request, **kw):
+        request["extra_body"]["nested"].append("changed")
+        request["stream_options"]["include_usage"] = False
+        return {"request": request}
+    context.register_middleware("llm_request", mutate_options)
     shaped = shape_auxiliary_request(request, context={"task": "compression"})
     assert shaped["messages"][0]["content"] == "shaped"
     assert request["messages"][0]["content"] == "original"
+    assert request["extra_body"]["nested"] == ["original"]
+    assert shaped["extra_body"]["nested"] == ["original", "changed"]
+    assert shaped["stream_options"] == {"include_usage": True}
