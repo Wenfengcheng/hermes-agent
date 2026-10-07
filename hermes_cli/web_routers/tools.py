@@ -579,6 +579,17 @@ async def select_toolset_provider(
                         acct.tool_gateway_entitled_for(category)
                         if category
                         else acct.tool_gateway_entitled))
+                # Explicit Fast Search uses the token-only route; the shared web
+                # row also offers extract, which still requires funded access.
+                if name == "web" and managed_feature == "web" and body.capability == "search":
+                    from tools.managed_tool_gateway import peek_nous_access_token, resolve_free_search_gateway
+
+                    try:
+                        entitled = resolve_free_search_gateway(token_reader=peek_nous_access_token) is not None
+                    except Exception:
+                        # A failed probe cannot establish readiness; the selection
+                        # is already saved, so return the existing recovery hint.
+                        entitled = False
                 if not entitled:
                     response["needs_nous_auth"] = True
                     response["feature"] = managed_feature
