@@ -917,13 +917,13 @@ class SessionMessagesMixin:
         return [int(r["id"]) for r in rows], sum(_tool_calls_len(r["tool_calls"]) for r in rows)
 
     def _clone_message_rows(self, conn, tail_ids: List[int], *, session_id: Optional[str] = None) -> None:
-        """Pure-SQL clone of *tail_ids* as fresh live rows (new id/display order, active=1, compacted=0;
-        message payload columns stay byte-exact and FTS triggers index the clones), into *session_id* when given."""
+        """Clone as fresh live model rows, keeping same-session display arrival positions.
+
+        Retargeted copies start a new display history; same-session concurrent rows
+        only move in model context, not in the user's transcript.
+        """
         retarget = session_id is not None
-        # A clone is a newly positioned display generation. Copy its indexed
-        # identity, but let the insert trigger assign order from rows that are
-        # still display-visible (the source may just have become rewind-only).
-        skip = ("id", "active", "compacted", "display_order") + (("session_id",) if retarget else ())
+        skip = ("id", "active", "compacted") + (("session_id", "display_order") if retarget else ())
         col_list = ", ".join(c for c in self._message_column_names(conn) if c not in skip)
         conn.execute(
             f"INSERT INTO messages ({col_list}, {'session_id, ' if retarget else ''}active, compacted) "
@@ -1217,7 +1217,9 @@ class SessionMessagesMixin:
             cur = seen.get(key)
             if cur is None or (row["active"], row["id"]) > (cur["active"], cur["id"]):
                 seen[key] = row
-            first_id[key] = min(first_id.get(key, row["id"]), row["id"])
+            order = row["display_order"] if "display_order" in row.keys() else None
+            order = row["id"] if order is None else min(order, row["id"])
+            first_id[key] = min(first_id.get(key, order), order)
         # Order by the logical message's FIRST row, not the chosen representative's: a protected-tail
         # copy in a newer generation has a higher id than messages emitted after the original.
         return [seen[key] for key in sorted(seen, key=first_id.__getitem__)]
@@ -1246,7 +1248,13 @@ class SessionMessagesMixin:
             for row in rows:
                 last_id = row["id"]
                 identity = self._display_identity(self._display_dedupe_key(row))
-                order = first_id.setdefault(identity, last_id)
+                # A same-session clone may be the only visible generation, while
+                # its original arrival row is rewind-only. Keep that proved slot;
+                # a stale identity still gets rebuilt from physical row order.
+                order = last_id
+                if identity == row["display_identity"] and row["display_order"] is not None:
+                    order = min(order, row["display_order"])
+                order = first_id.setdefault(identity, order)
                 if order != row["display_order"] or identity != row["display_identity"]:
                     updates.append((order, identity, last_id))
             rows.close()
@@ -1279,7 +1287,10 @@ class SessionMessagesMixin:
                              latest: bool) -> List[Any]:
         """Project a legacy read-only display page without retaining transcript payloads."""
         representatives: Dict[bytes, Tuple[int, int]] = {}
+        positions: Dict[bytes, int] = {}
         with self._read_ctx() as conn:
+            has_order = "display_order" in self._message_column_names(conn)
+            order_column = "display_order" if has_order else "NULL AS display_order"
             conn.execute("BEGIN")
             try:
                 has_session_index = conn.execute(
@@ -1289,7 +1300,7 @@ class SessionMessagesMixin:
                 index_hint = "INDEXED BY idx_messages_session_id" if has_session_index else "NOT INDEXED"
                 rows = conn.execute(
                     "SELECT id, role, content, timestamp, tool_call_id, tool_calls, tool_name, active, "
-                    f"display_kind, display_metadata FROM messages {index_hint} "
+                    f"display_kind, display_metadata, {order_column} FROM messages {index_hint} "
                     f"WHERE session_id = ?{active_clause} ORDER BY id ASC",
                     (session_id,))
                 for row in rows:
@@ -1300,9 +1311,11 @@ class SessionMessagesMixin:
                     candidate = (row["active"], row["id"])
                     if current is None or candidate > current:
                         representatives[identity] = candidate
+                    order = row["id"] if row["display_order"] is None else min(row["id"], row["display_order"])
+                    positions[identity] = min(positions.get(identity, order), order)
                 rows.close()
 
-                identities = list(representatives)
+                identities = sorted(representatives, key=positions.__getitem__)
                 identities = identities[::-1][offset:][:limit][::-1] if latest else identities[offset:][:limit]
                 selected_ids = [representatives[identity][1] for identity in identities]
                 selected = {}
@@ -1514,7 +1527,7 @@ class SessionMessagesMixin:
         """``_CONVERSATION_ROW_COLUMNS`` rows for *session_ids* ORDER BY id (timestamps are not monotonic
         and would break tool-call adjacency)."""
         return self._read_all(
-            f"SELECT {'session_id, ' if with_session_id else ''}{self._CONVERSATION_ROW_COLUMNS} "
+            f"SELECT {'session_id, ' if with_session_id else ''}display_order, {self._CONVERSATION_ROW_COLUMNS} "
             f"FROM messages WHERE session_id IN ({_placeholders(session_ids)})"
             f"{active_clause} ORDER BY id", tuple(session_ids))
 
