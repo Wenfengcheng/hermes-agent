@@ -8,9 +8,7 @@ from gateway.platforms.base import MessageType
 from plugins.platforms.slack.adapter import SlackAdapter
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("mimetype,subtype", [("audio/mp4", ""), ("video/mp4", "slack_audio")])
-async def test_cold_reply_audio_reaches_inbound_media(tmp_path, mimetype, subtype):
+async def _cold_reply_event(tmp_path, mimetype, subtype):
     import importlib
     from pathlib import Path
     from types import SimpleNamespace
@@ -49,13 +47,69 @@ async def test_cold_reply_audio_reaches_inbound_media(tmp_path, mimetype, subtyp
         "text": "<@U_BOT> summarize", "user": "U_USER", "channel": "C123",
         "ts": "123.456", "thread_ts": "123.000", "channel_type": "channel", "team": "T_TEAM"})
     adapter.handle_message.assert_awaited_once()
-    event = adapter.handle_message.call_args.args[0]
+    return adapter.handle_message.call_args.args[0], audio
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mimetype,subtype", [("audio/mp4", ""), ("video/mp4", "slack_audio")])
+async def test_cold_reply_audio_reaches_inbound_media(tmp_path, mimetype, subtype):
+    event, audio = await _cold_reply_event(tmp_path, mimetype, subtype)
     assert "voice.m4a]" in event.channel_context
     assert event.media_urls == [str(audio)]
     assert event.media_types == ["audio/mp4"]
     assert event.message_type == MessageType.VOICE
     from gateway.run import _event_media_is_stt_input
     assert _event_media_is_stt_input(event, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "fallback", "empty", "error", "disabled"])
+async def test_cold_reply_audio_runs_gateway_transcription(tmp_path, monkeypatch, outcome):
+    from gateway.config import GatewayConfig
+    from gateway.run import GatewayRunner
+    from tools import transcription_tools
+
+    event, audio = await _cold_reply_event(tmp_path, "audio/mp4", "")
+    runner = object.__new__(GatewayRunner)
+    runner.config = GatewayConfig(stt_enabled=outcome != "disabled")
+    runner._should_echo_stt_transcripts = lambda: False
+    # Keep reference expansion out of this fixture, not media preparation or STT.
+    runner._expand_inbound_context_references = AsyncMock(side_effect=lambda source, key, text: text)
+    transcript = "The launch is on Friday."
+    result = {"success": True, "transcript": transcript}
+    if outcome == "fallback":
+        result = {"success": False, "error": "configured provider unavailable"}
+    elif outcome == "empty":
+        result = {"success": True, "transcript": "  "}
+    transcribe = MagicMock(return_value=result)
+    if outcome == "error":
+        transcribe.side_effect = RuntimeError("fixture provider failure")
+    fallback = MagicMock(return_value={"success": True, "transcript": transcript})
+    monkeypatch.setattr(transcription_tools, "transcribe_audio", transcribe)
+    monkeypatch.setattr(transcription_tools, "transcribe_audio_local_fallback", fallback)
+    monkeypatch.setattr("gateway.run._probe_audio_duration", AsyncMock(return_value=None))
+
+    prepared = await runner._prepare_inbound_message_text(
+        event=event, source=event.source, history=[], session_key="fixture-thread",
+    )
+    assert "summarize" in prepared
+    assert "Alice" in prepared
+    assert "voice.m4a]" in prepared
+    if outcome == "disabled":
+        transcribe.assert_not_called()
+        assert str(audio) in prepared
+    else:
+        transcribe.assert_called_once_with(str(audio), None, "gateway")
+        if outcome in {"success", "fallback"}:
+            assert transcript in prepared
+        elif outcome == "empty":
+            assert "empty or inaudible" in prepared
+        else:
+            assert "could not be transcribed automatically" in prepared
+    if outcome == "fallback":
+        fallback.assert_called_once_with(str(audio))
+    else:
+        fallback.assert_not_called()
 
 
 @pytest.mark.asyncio
