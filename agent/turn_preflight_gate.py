@@ -26,6 +26,23 @@ def _unknown_threshold_recovery_budget(agent: Any) -> int:
     """
     window = getattr(agent.context_compressor, "context_length", None)
     output = getattr(agent, "max_tokens", None)
+    if getattr(agent, "api_mode", None) == "anthropic_messages":
+        from agent.anthropic_adapter import (
+            _is_nous_portal_endpoint, normalize_model_name, resolve_anthropic_output_kwargs,
+        )
+        from agent.chat_completion_helpers import _preview_reasoning_config_for_wire
+
+        ephemeral = getattr(agent, "_ephemeral_max_output_tokens", None)
+        if ephemeral is not None:
+            output = ephemeral
+        model = agent.model
+        base_url = getattr(agent, "_anthropic_base_url", None)
+        if not _is_nous_portal_endpoint(base_url):
+            model = normalize_model_name(model, preserve_dots=agent._anthropic_preserve_dots())
+        if type(window) is int and window > 0 and type(output) is int and output > 0:
+            output = resolve_anthropic_output_kwargs(
+                model, output, _preview_reasoning_config_for_wire(agent), context_length=window,
+            )["max_tokens"]
     if type(window) is not int or window <= 0:
         return 0
     if type(output) is not int or output <= 0:

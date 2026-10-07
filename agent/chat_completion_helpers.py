@@ -1324,6 +1324,14 @@ def _consume_ephemeral_reasoning_off(agent) -> bool:
 
 
 def _reasoning_config_for_wire(agent):
+    """Consume the one-shot flag and record the reasoning config sent on the wire."""
+    cfg = _preview_reasoning_config_for_wire(agent)
+    _consume_ephemeral_reasoning_off(agent)
+    agent._wire_reasoning_config = cfg
+    return cfg
+
+
+def _preview_reasoning_config_for_wire(agent):
     """``agent.reasoning_config`` with the one-shot reasoning-off override applied.
 
     Once the route has answered a disable with "reasoning is mandatory"
@@ -1333,12 +1341,11 @@ def _reasoning_config_for_wire(agent):
     applies its own default.
     """
     cfg = agent.reasoning_config
-    ephemeral_off = _consume_ephemeral_reasoning_off(agent)
+    ephemeral_off = bool(getattr(agent, "_ephemeral_reasoning_off", False))
     if getattr(agent, "_reasoning_effort_rejected", False):
         # The route rejected the configured reasoning LEVEL itself (#100536: ``reasoning.effort:
         # max`` on an enabled config). Omit the reasoning fields for the rest of the session —
         # the route default — as the auxiliary ladder does; resending would 400 identically.
-        agent._wire_reasoning_config = None
         return None
     if cfg is None:
         # Unset effort: the profile's default (custom/OpenAI-compatible: medium) rather than the
@@ -1360,17 +1367,11 @@ def _reasoning_config_for_wire(agent):
             if getattr(agent, "_reasoning_floor_required", False):
                 from agent.auxiliary_reasoning_floor import REASONING_FLOOR_EFFORT
                 floored = {**cfg, "enabled": True, "effort": REASONING_FLOOR_EFFORT}
-                agent._wire_reasoning_config = floored
                 return floored
-            agent._wire_reasoning_config = None
             return None
-        agent._wire_reasoning_config = cfg
         return cfg
     if ephemeral_off:
         cfg = {**(cfg or {}), "enabled": False, "effort": "none"}
-    # What actually went out: the reasoning-rejection rung reads it to tell a rejected
-    # disable (drop the disable) from a rejected level (drop the reasoning fields).
-    agent._wire_reasoning_config = cfg
     return cfg
 
 

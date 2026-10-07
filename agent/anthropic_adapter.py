@@ -625,6 +625,24 @@ def _thinking_kwargs(reasoning_config: Dict[str, Any], model: str, effective_max
     }
 
 
+def resolve_anthropic_output_kwargs(
+    model: str, max_tokens: Optional[int], reasoning_config: Optional[Dict[str, Any]],
+    *, context_length: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Resolve output and thinking together, without assembling or mutating a request.
+
+    ``model`` is the normalized wire model. Keep the existing clamp-before-thinking
+    order: manual thinking can raise the cap, and preflight must reserve that final cap.
+    """
+    effective = _resolve_anthropic_messages_max_tokens(max_tokens, model, context_length=context_length)
+    if context_length and effective > context_length:
+        effective = max(context_length - 1, 1)
+    kwargs = {"max_tokens": effective}
+    if reasoning_config and isinstance(reasoning_config, dict):
+        kwargs.update(_thinking_kwargs(reasoning_config, model, effective))
+    return kwargs
+
+
 # OpenAI tool_choice -> Anthropic; any other string is a forced tool name.
 _TOOL_CHOICE_MAP = {None: {"type": "auto"}, "auto": {"type": "auto"}, "required": {"type": "any"}}
 
@@ -650,13 +668,13 @@ def build_anthropic_kwargs(
     if not _is_nous_portal_endpoint(base_url):
         model = normalize_model_name(model, preserve_dots=preserve_dots)
     # Non-positive/non-finite values fail locally instead of 400-ing upstream.
-    effective_max_tokens = _resolve_anthropic_messages_max_tokens(max_tokens, model, context_length=context_length)
-    if context_length and effective_max_tokens > context_length:
-        effective_max_tokens = max(context_length - 1, 1)
+    output_kwargs = resolve_anthropic_output_kwargs(
+        model, max_tokens, reasoning_config, context_length=context_length,
+    )
     to_wire = _oauth_wire_namer(anthropic_tools) if is_oauth else None
     if to_wire:
         system = _apply_claude_code_identity(system, anthropic_tools, anthropic_messages, to_wire)
-    kwargs: Dict[str, Any] = {"model": model, "messages": anthropic_messages, "max_tokens": effective_max_tokens}
+    kwargs: Dict[str, Any] = {"model": model, "messages": anthropic_messages, "max_tokens": output_kwargs["max_tokens"]}
     if system:
         kwargs["system"] = system
     if anthropic_tools:
@@ -680,8 +698,7 @@ def build_anthropic_kwargs(
     # which silently hides reasoning text that Hermes surfaces in its CLI. We request "summarized" so the
     # reasoning blocks stay populated — matching 4.6 behavior and preserving the activity-feed UX during
     # long tool runs.
-    if reasoning_config and isinstance(reasoning_config, dict):
-        kwargs.update(_thinking_kwargs(reasoning_config, model, effective_max_tokens))
+    kwargs.update(output_kwargs)
     # Safety net so upstream 4.6 -> 4.7 migrations don't need coordinated edits everywhere callers
     # (auxiliary_client, ...) set sampling params.
     if _forbids_sampling_params(model):
