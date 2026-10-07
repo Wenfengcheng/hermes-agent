@@ -652,6 +652,26 @@ def _get_platform_tools(config: dict, platform: str, *, include_default_mcp_serv
     return enabled_toolsets
 
 
+def _toolset_policy_note(toolset: str, disabled_toolsets) -> str:
+    """Describe partial policy suppression without changing runtime selection."""
+    if not disabled_toolsets:
+        return ""
+    from agent.skill_utils import parse_config_string_list
+    from model_tools import _apply_toolset_selection
+    from toolsets import resolve_toolset, validate_toolset
+
+    if not validate_toolset(toolset):
+        return ""
+    tools = set(resolve_toolset(toolset))
+    surviving = tools.copy()
+    disabled = [name.strip() for name in parse_config_string_list(disabled_toolsets) if name.strip()]
+    _apply_toolset_selection(surviving, disabled, quiet_mode=True, disable=True)
+    removed = tools - surviving
+    if not removed or not surviving:
+        return ""
+    return f"partial: {', '.join(sorted(removed))} disabled by agent.disabled_toolsets"
+
+
 def _prune_toolsets_stripped_by_disabled(enabled_toolsets: Set[str], disabled_names: List[str]) -> Set[str]:
     """Drop disabled names AND every toolset whose tools the runtime would strip anyway.
 
@@ -974,7 +994,11 @@ def _print_tools_summary(config: dict, enabled_platforms: List[str]) -> None:
     for pkey, enabled in _platform_toolset_summary(config, enabled_platforms).items():
         print(color(f"  {PLATFORMS[pkey]['label']}", Colors.BOLD) + color(f"  ({len(enabled)}/{total})", Colors.DIM))
         for ts_key in sorted(enabled):
-            print(color(f"    ✓ {_toolset_label(ts_key)}", Colors.GREEN))
+            note = _toolset_policy_note(ts_key, (config.get("agent") or {}).get("disabled_toolsets"))
+            if note:
+                print(color(f"    {_toolset_label(ts_key)} ({note})", Colors.YELLOW))
+            else:
+                print(color(f"    ✓ {_toolset_label(ts_key)}", Colors.GREEN))
         if not enabled:
             print(color("    (none enabled)", Colors.DIM))
     print()

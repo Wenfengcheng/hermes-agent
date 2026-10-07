@@ -184,9 +184,9 @@ def _apply_mcp_change(config: dict, targets: List[str], action: str) -> Set[str]
     return failed_servers
 
 
-def _print_tools_list(enabled_toolsets: set, mcp_servers: dict, platform: str = "cli"):
+def _print_tools_list(enabled_toolsets: set, mcp_servers: dict, platform: str = "cli", *, disabled_toolsets=None):
     """Print a summary of enabled/disabled toolsets and MCP tool filters."""
-    from hermes_cli.tools_config import CONFIGURABLE_TOOLSETS, _get_effective_configurable_toolsets
+    from hermes_cli.tools_config import CONFIGURABLE_TOOLSETS, _get_effective_configurable_toolsets, _toolset_policy_note
 
     effective_all = _get_effective_configurable_toolsets()
     effective = [(k, l, d) for (k, l, d) in effective_all if _toolset_allowed_for_platform(k, platform)]
@@ -195,6 +195,8 @@ def _print_tools_list(enabled_toolsets: set, mcp_servers: dict, platform: str = 
     def _print_rows(entries):
         for ts_key, label in entries:
             status = color("✓ enabled", Colors.GREEN) if ts_key in enabled_toolsets else color("✗ disabled", Colors.RED)
+            if ts_key in enabled_toolsets and (note := _toolset_policy_note(ts_key, disabled_toolsets)):
+                status = color(note, Colors.YELLOW)
             print(f"  {status}  {ts_key}  {color(label, Colors.DIM)}")
 
     print(f"Built-in toolsets ({platform}):")
@@ -253,7 +255,8 @@ def tools_disable_enable_command(args):
 
     if action == "list":
         _print_tools_list(_get_platform_tools(config, platform, include_default_mcp_servers=False),
-                          config.get("mcp_servers") or {}, platform)
+                          config.get("mcp_servers") or {}, platform,
+                          disabled_toolsets=(config.get("agent") or {}).get("disabled_toolsets"))
         return
 
     targets: List[str] = args.names
