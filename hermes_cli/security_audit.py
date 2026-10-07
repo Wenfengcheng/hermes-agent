@@ -14,7 +14,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -38,6 +38,8 @@ class Component:
     version: str
     ecosystem: str  # "PyPI" | "npm" — exactly as OSV expects
     source: str    # human-readable origin, e.g. "venv", "plugin:foo", "mcp:bar"
+    # Metadata installation roots, not inferred virtualenvs or import winners.
+    locations: tuple[str, ...] = field(default=(), compare=False)
 
 
 @dataclass
@@ -79,7 +81,16 @@ def _discover_venv() -> list[Component]:
             if version == "unknown":
                 continue
         if name and version:
-            out.setdefault((name.lower(), version), Component(name=name, version=version, ecosystem="PyPI", source="venv"))
+            key = (name.lower(), version)
+            component = out.setdefault(key, Component(name=name, version=version, ecosystem="PyPI", source="venv"))
+            try:
+                location = str(Path(dist.locate_file("")).absolute())
+            except Exception:
+                # Custom metadata finders need not expose a filesystem location.
+                # Missing provenance must not remove a vulnerable component.
+                continue
+            if location not in component.locations:
+                out[key] = replace(component, locations=(*component.locations, location))
     return list(out.values())
 
 
@@ -276,6 +287,8 @@ def _render_human(findings: list[Finding], total_components: int) -> str:
             lines.append(f"[{c.source}]")
             last_source = c.source
         lines.append(f"  {v.severity.ljust(8)}  {c.name}=={c.version}  {v.osv_id}")
+        for location in c.locations:
+            lines.append(f"           installed at: {location}")
         if summary := v.summary:
             lines.append(f"           {summary}")
         if v.fixed_versions:
@@ -291,6 +304,7 @@ def _render_json(findings: list[Finding], total_components: int) -> str:
         "findings": [{
             "package": f.component.name, "version": f.component.version,
             "ecosystem": f.component.ecosystem, "source": f.component.source,
+            "locations": list(f.component.locations),
             "vuln_id": f.vuln.osv_id, "severity": f.vuln.severity,
             "summary": f.vuln.summary, "fixed_versions": f.vuln.fixed_versions,
             "url": f.vuln.url,
