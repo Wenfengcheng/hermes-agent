@@ -931,6 +931,28 @@ class SessionMessagesMixin:
             f"WHERE id IN ({_placeholders(tail_ids)}) ORDER BY id",
             [session_id, *tail_ids] if retarget else tail_ids)
 
+    def _carried_display_positions(self, conn, row_ids: List[int]) -> Dict[bytes, int]:
+        """Capture arrival positions only for exact rows this compaction supersedes."""
+        positions: Dict[bytes, int] = {}
+        for start in range(0, len(row_ids), 900):
+            chunk = row_ids[start:start + 900]
+            for row in conn.execute(f"SELECT * FROM messages WHERE id IN ({_placeholders(chunk)})", chunk):
+                identity = self._display_identity(self._display_dedupe_key(row))
+                order = row["id"]
+                if identity == row["display_identity"] and row["display_order"] is not None:
+                    order = min(order, row["display_order"])
+                positions[identity] = min(positions.get(identity, order), order)
+        return positions
+
+    @staticmethod
+    def _restore_carried_display_positions(conn, session_id: str, positions: Dict[bytes, int]) -> None:
+        # Match the full display identity, not text or UID alone: a changed copy
+        # must not inherit the arrival slot of an unrelated/rewound message.
+        conn.executemany(
+            "UPDATE messages SET display_order = MIN(COALESCE(display_order, id), ?) "
+            "WHERE session_id = ? AND display_identity = ? AND (active = 1 OR compacted = 1)",
+            [(order, session_id, identity) for identity, order in positions.items()])
+
     def _archive_named_rows(
         self, conn, session_id: str, compacted_messages: List[Dict[str, Any]], covered: List[int], *,
         tail_count: int, carried_messages: Optional[List[Dict[str, Any]]], patched_model_config: Any,
@@ -953,6 +975,7 @@ class SessionMessagesMixin:
             rewind_ids += self._tail_originals(covered_active, tail_count, merged_away)
         rewind_ids += unseen
         rewind_ids = list(dict.fromkeys(rewind_ids))
+        display_positions = self._carried_display_positions(conn, rewind_ids)
         if rewind_ids:
             placeholders = _placeholders(rewind_ids)
             conn.execute(
@@ -977,6 +1000,7 @@ class SessionMessagesMixin:
         # A carried copy whose stored identity was computed differently lands in its own
         # display_order group and would project twice; re-fold before publishing (#122167).
         self._reconcile_display_orders(conn, session_id)
+        self._restore_carried_display_positions(conn, session_id, display_positions)
         conn.execute(
             f"{_SET_COUNTERS_SQL}{', model_config = ?' if patch else ''} WHERE id = ?",
             (inserted, tool_calls_total, *((patched_model_config,) if patch else ()), session_id))
@@ -1046,6 +1070,7 @@ class SessionMessagesMixin:
                      int(tail_count) + self._uncounted_merged_rows(compacted_messages[-int(tail_count):]))).fetchall()]
             rewind_ids += tail_ids
             rewind_ids = list(dict.fromkeys(rewind_ids))
+            display_positions = self._carried_display_positions(conn, rewind_ids)
             if rewind_ids:
                 placeholders = _placeholders(rewind_ids)
                 conn.execute("UPDATE messages SET active = 0, compacted = 0 "
@@ -1065,6 +1090,7 @@ class SessionMessagesMixin:
             # A carried copy whose stored identity was computed differently lands in its own
             # display_order group and would project twice; re-fold before publishing (#122167).
             self._reconcile_display_orders(conn, session_id)
+            self._restore_carried_display_positions(conn, session_id, display_positions)
             conn.execute(f"{_SET_COUNTERS_SQL}{', model_config = ?' if patch else ''} WHERE id = ?",
                 (inserted, tool_calls_total, *((patched_model_config,) if patch else ()), session_id))
             return inserted
