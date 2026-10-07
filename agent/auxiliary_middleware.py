@@ -38,9 +38,8 @@ def shape_auxiliary_request(
     # The caller already selected completion versus streaming consumption.
     # Request middleware cannot change that transport contract mid-dispatch.
     shaped = dict(shaped)
-    for key in ("stream", "stream_options"):
-        if key in request:
-            shaped[key] = request[key]
-        else:
-            shaped.pop(key, None)
+    if "stream" in request:
+        shaped["stream"] = request["stream"]
+    else:
+        shaped.pop("stream", None)
     return shaped

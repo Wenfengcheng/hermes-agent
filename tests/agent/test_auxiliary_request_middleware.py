@@ -88,7 +88,30 @@ def test_public_stream_uses_request_chain(fixture):
     assert sent[0]["temperature"] == 0.3
 
 
-def test_fallback_is_shaped_afresh_with_realized_provider(fixture, monkeypatch):
+@pytest.fixture
+def relay_managed(request):
+    if not request.param:
+        yield
+        return
+    from agent import relay_runtime
+    relay_runtime._reset_for_tests()
+    lease = relay_runtime.SESSION_COORDINATOR.acquire_conversation(
+        profile_key=relay_runtime.current_profile_key(), session_id="aux-middleware",
+        platform="cli")
+    turn = relay_runtime.SESSION_COORDINATOR.begin_turn(
+        lease, turn_id="turn", task_id="task")
+    lease.host.retain_managed_execution("aux-middleware-test")
+    try:
+        yield
+    finally:
+        lease.host.release_managed_execution("aux-middleware-test")
+        relay_runtime.SESSION_COORDINATOR.end_turn(turn, outcome="success")
+        relay_runtime.SESSION_COORDINATOR.release_conversation(lease)
+        relay_runtime._reset_for_tests()
+
+
+@pytest.mark.parametrize("relay_managed", [False, True], indirect=True)
+def test_fallback_is_shaped_afresh_with_realized_provider(fixture, monkeypatch, relay_managed):
     context, sent, response = fixture
     from openai import RateLimitError
     import httpx
@@ -117,6 +140,7 @@ def test_fallback_is_shaped_afresh_with_realized_provider(fixture, monkeypatch):
     assert aux.call_llm(task="title_generation", messages=messages) is response
     assert len(sent) == 2
     assert seen[1]["model"] == "fallback-model"
+    assert [attempt["retry_count"] for attempt in seen] == [0, 1]
     assert [r["messages"][0]["content"] for r in sent] == ["original shaped"] * 2
     assert messages[0]["content"] == "original"
 
@@ -153,4 +177,23 @@ def test_noncopyable_option_cannot_alias_caller_messages(fixture):
     assert request["messages"][0]["content"] == "original"
     assert request["extra_body"]["nested"] == ["original"]
     assert shaped["extra_body"]["nested"] == ["original", "changed"]
-    assert shaped["stream_options"] == {"include_usage": True}
+    assert shaped["stream_options"] == {"include_usage": False}
+    assert request["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.parametrize("options", [{"include_usage": True}, None])
+def test_stream_options_remain_middleware_owned(fixture, options):
+    from agent.auxiliary_middleware import shape_auxiliary_request
+    context, _, _ = fixture
+    def shape(request, **kw):
+        if options is None:
+            request.pop("stream_options", None)
+        else:
+            request["stream_options"] = options
+        return {"request": request}
+    context.register_middleware("llm_request", shape)
+    request = {"stream": True, "stream_options": {"include_usage": False}}
+    shaped = shape_auxiliary_request(request, context={"task": "compression"})
+    assert shaped["stream"] is True
+    assert shaped.get("stream_options") == options
+    assert request["stream_options"] == {"include_usage": False}
