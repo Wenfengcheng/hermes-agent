@@ -7,11 +7,12 @@ from tests.agent.test_413_compression import _new_test_agent, _mock_response
 
 
 @pytest.mark.parametrize("threshold,window,output,pressure,recovers", [
-    (0, 65_536, 4096, 10_000, True),
+    # Other transports retain their pre-existing fail-closed unknown-threshold path.
+    (0, 65_536, 4096, 10_000, False),
     (34_078, 65_536, 4096, 10_000, True),
     # A rough estimate below the hard input window still needs safety headroom.
     (0, 65_536, 4096, 60_000, False),
-    (0, 65_536, 4096, 50_000, True),
+    (0, 65_536, 4096, 50_000, False),
     (0, 65_536, 4096, 61_440, False),
     (0, 65_536, 4096, 70_000, False),
     (0, 0, 4096, 10_000, False),

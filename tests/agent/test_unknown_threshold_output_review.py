@@ -87,6 +87,22 @@ def test_manual_thinking_recovery_through_conversation(pressure, recovers, monke
         assert send.call_count == 1
 
 
+@pytest.mark.parametrize("api_mode", ["chat_completions", "codex_responses", "bedrock_converse", "unknown"])
+def test_unknown_output_routes_stay_fail_closed(api_mode):
+    agent = SimpleNamespace(api_mode=api_mode, max_tokens=4096,
+                            context_compressor=SimpleNamespace(context_length=65_536))
+    assert _unknown_threshold_recovery_budget(agent) == 0
+
+
+@pytest.mark.parametrize("window,output", [(0,4096), (None,4096), (True,4096),
+                                           (65_536,None), (65_536,0), (65_536,True), (4096,4096)])
+def test_unknown_or_exhausted_messages_budget_stays_fail_closed(window,output):
+    agent = SimpleNamespace(api_mode="anthropic_messages", max_tokens=output, model="claude-sonnet-4-5",
+                            reasoning_config={"enabled": False}, _anthropic_preserve_dots=lambda: False,
+                            context_compressor=SimpleNamespace(context_length=window))
+    assert _unknown_threshold_recovery_budget(agent) == 0
+
+
 def test_rejected_reasoning_preview_does_not_consume_state():
     agent = SimpleNamespace(reasoning_config={"enabled": True}, _ephemeral_reasoning_off=True,
                             _reasoning_effort_rejected=True, _wire_reasoning_config="previous")
