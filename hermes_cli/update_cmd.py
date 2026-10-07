@@ -196,6 +196,10 @@ def _map_ssl_cert_file_for_git(git_cmd) -> None:
     configured = _git_run(git_cmd, ["config", "--get", "http.sslCAInfo"])
     if configured.returncode == 0 and configured.stdout.strip():
         return
+    # Resolve path shorthand only at the Git boundary, never in arbitrary
+    # dotenv values (credentials may contain literal variable syntax).
+    if not os.path.isfile(bundle):
+        bundle = os.path.expanduser(os.path.expandvars(bundle))
     os.environ["GIT_SSL_CAINFO"] = bundle
 
 
