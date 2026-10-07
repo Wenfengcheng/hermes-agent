@@ -17,6 +17,22 @@ from agent.turn_preflight import PreflightGateVerdict, run_preflight_compression
 logger = logging.getLogger("agent.conversation_loop")
 
 
+def _unknown_threshold_recovery_budget(agent: Any) -> int:
+    """Admit a recovered request only with a known window and output reservation.
+
+    A missing proactive trigger is not evidence that a rebuilt request is oversized.
+    Do not resolve a catalog default here: it could exceed the active server's window.
+    Engines that also omit their window retain the existing fail-closed behavior.
+    """
+    window = getattr(agent.context_compressor, "context_length", None)
+    output = getattr(agent, "max_tokens", None)
+    if type(window) is not int or window <= 0:
+        return 0
+    if type(output) is not int or output <= 0:
+        return 0
+    return max(0, window - output)
+
+
 def run_preflight_gate(
     agent: Any, *, request_pressure_tokens: Any, _moa_prepared_request: Any,
     pending_moa_prepared_request: Any, messages: Any, system_message: Any, user_message: Any,
@@ -62,8 +78,11 @@ def run_preflight_gate(
     # failure cooldown, then should_compress().
     _compressor = agent.context_compressor
     _preflight_threshold = int(getattr(_compressor, "threshold_tokens", 0) or 0)
+    _recovery_threshold = _preflight_threshold
+    if _provider_overflow_recovery_pending and _recovery_threshold <= 0:
+        _recovery_threshold = _unknown_threshold_recovery_budget(agent)
     _provider_overflow_preflight = _provider_overflow_recovery_pending and (
-        _preflight_threshold <= 0 or request_pressure_tokens >= _preflight_threshold
+        _recovery_threshold <= 0 or request_pressure_tokens >= _recovery_threshold
     )
     if _provider_overflow_recovery_pending and not _provider_overflow_preflight:
         # The outer-loop rebuild includes system prompt, request-only injections and
