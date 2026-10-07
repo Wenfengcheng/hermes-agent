@@ -32,6 +32,41 @@ def fixture(monkeypatch):
     return context, sent, response
 
 
+def test_discovered_plugin_shapes_public_auxiliary_call(fixture):
+    """A plugin installed on disk reaches the auxiliary wire without manual registration."""
+    from pathlib import Path
+    from hermes_constants import get_hermes_home
+
+    _, sent, response = fixture
+    home = Path(get_hermes_home())
+    plugin = home / "plugins" / "aux-discovered-shaper"
+    plugin.mkdir(parents=True)
+    (plugin / "plugin.yaml").write_text(
+        "name: aux-discovered-shaper\nversion: '0.1'\ndescription: Test request shaping\n",
+        encoding="utf-8",
+    )
+    (plugin / "__init__.py").write_text(
+        "def register(ctx):\n"
+        "    def shape(request, task, **kwargs):\n"
+        "        request['messages'][0]['content'] = 'shaped for ' + task\n"
+        "        return {'request': request}\n"
+        "    ctx.register_middleware('llm_request', shape)\n",
+        encoding="utf-8",
+    )
+    (home / "config.yaml").write_text(
+        "plugins:\n  enabled: [aux-discovered-shaper]\n", encoding="utf-8"
+    )
+    manager = plugins.get_plugin_manager()
+    try:
+        plugins.discover_plugins()
+        messages = [{"role": "user", "content": "original"}]
+        assert aux.call_llm(task="title_generation", messages=messages) is response
+        assert sent[0]["messages"][0]["content"] == "shaped for title_generation"
+        assert messages[0]["content"] == "original"
+    finally:
+        manager.unload()
+
+
 def test_public_call_applies_request_middleware_without_mutating_input(fixture):
     context, sent, response = fixture
     seen = []
