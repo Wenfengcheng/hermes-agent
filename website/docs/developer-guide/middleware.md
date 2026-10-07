@@ -102,6 +102,21 @@ Responses API `input`, model settings, tool definitions, stream options, and
 provider-specific options. Execution middleware receives the same effective
 request plus `next_call`.
 
+### Auxiliary LLM request shaping
+
+`call_llm` and `async_call_llm` apply `llm_request` to each auxiliary
+attempt, including retries, fallback candidates, and synchronous streaming.
+Callbacks receive `task` / `auxiliary_task`, `call_role`, `api_request_id`,
+`provider`, `model`, `api_mode`, and `retry_count`. The request is an
+attempt-local copy: rewriting messages does not edit the caller's history or
+accumulate transformations across retries. Returning no replacement or raising
+preserves the existing request-middleware fail-open behavior.
+
+This request-shaping boundary does not change provider/client selection or
+add auxiliary `llm_execution` middleware. Auxiliary observer events remain
+`pre_auxiliary_call` / `post_auxiliary_call`, not the turn-scoped
+`pre_api_request` / `post_api_request` events.
+
 ### Tool Calls
 
 For each tool call, Hermes applies middleware in this order:

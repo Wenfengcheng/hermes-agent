@@ -2627,7 +2627,10 @@ def _relay_sync_completion(
     api_mode: str | None = None, create: Callable[[dict[str, Any]], Any] | None = None,
 ) -> Any:
     from agent.auxiliary_wire import prepare_chat_messages
+    from agent.auxiliary_middleware import shape_auxiliary_request
 
+    kwargs = shape_auxiliary_request(
+        kwargs, context=_RELAY_AUX_CALL_CONTEXT.get() or {}, provider=provider, api_mode=api_mode)
     kwargs = prepare_chat_messages(client, kwargs)
     # The progress hook is installed per TASK, so every attempt (retries, recovery rungs, fallbacks)
     # must stream through _create_with_progress or the compression watchdog sees silence (#98466).
@@ -2666,7 +2669,10 @@ async def _relay_async_completion(
     api_mode: str | None = None, create: Callable[[dict[str, Any]], Any] | None = None,
 ) -> Any:
     from agent.auxiliary_wire import prepare_chat_messages
+    from agent.auxiliary_middleware import shape_auxiliary_request
 
+    kwargs = shape_auxiliary_request(
+        kwargs, context=_RELAY_AUX_CALL_CONTEXT.get() or {}, provider=provider, api_mode=api_mode)
     kwargs = prepare_chat_messages(client, kwargs)
     # Async twin of the seam default above (#98466).
     callback = create or (lambda request: _acreate_with_progress(client, request))
@@ -2695,7 +2701,10 @@ def _relay_sync_stream(
     client: Any, kwargs: dict[str, Any], *, provider: str | None = None, api_mode: str | None = None
 ) -> Any:
     from agent.auxiliary_wire import prepare_chat_messages
+    from agent.auxiliary_middleware import shape_auxiliary_request
 
+    kwargs = shape_auxiliary_request(
+        kwargs, context=_RELAY_AUX_CALL_CONTEXT.get() or {}, provider=provider, api_mode=api_mode)
     kwargs = prepare_chat_messages(client, kwargs)
     # The bypass runs inside the provider callback, AFTER Relay has seen (and possibly
     # rewritten) the real conversation; applying it to `kwargs` would hand Relay an empty one.
@@ -8191,6 +8200,10 @@ def _call_llm_impl(
         if task == "moa_aggregator" and isinstance(client, CodexAuxiliaryClient):
             # Responses-shim clients consume the stream internally and return a completed
             # object Relay's managed stream would iterate; the MoA facade wraps it as one chunk.
+            from agent.auxiliary_middleware import shape_auxiliary_request
+            kwargs = shape_auxiliary_request(
+                kwargs, context=_RELAY_AUX_CALL_CONTEXT.get() or {},
+                provider=request_provider, api_mode=req.resolved_api_mode)
             return client.chat.completions.create(**kwargs)
         return _relay_sync_stream(client, kwargs, provider=request_provider, api_mode=req.resolved_api_mode)
 
