@@ -4368,6 +4368,11 @@ class SlackAdapter(BasePlatformAdapter):
                 thread_root_media_urls, thread_root_media_types,
             ) = await self._collect_thread_root_images(
                 channel_id=channel_id, thread_ts=event_thread_ts, team_id=team_id)
+            from .thread_audio import collect_reply_audio
+            audio_paths, audio_types = await collect_reply_audio(
+                self, channel_id, event_thread_ts, ts, team_id)
+            thread_root_media_urls.extend(audio_paths)
+            thread_root_media_types.extend(audio_types)
         elif is_mentioned:
             await _fetch(after_ts=self._get_thread_watermark(**watermark_args), force_refresh=True)
         else:
