@@ -366,6 +366,17 @@ def _validate_custom(req: _Request) -> dict[str, Any]:
     probe = _m.probe_api_models(req.api_key, req.base_url, timeout=15.0, force_refresh=True,
                                 request_headers=req.headers, **probe_kwargs)
     api_models = probe.get("models")
+    if api_models:
+        # Reuse the successful explicit probe on subsequent cache-only picker opens.
+        # Keep the caller's full identity (including an omitted api_mode); do not
+        # mint another token or issue a second request merely to warm the cache.
+        try:
+            _m.cached_fetch_api_models(
+                req.api_key, req.base_url, api_mode=req.api_mode, headers=req.headers,
+                force_refresh=True, fetch_models=lambda: api_models,
+            )
+        except Exception:  # cache admission is best-effort; the live verdict remains authoritative
+            pass
     if api_models is not None:
         match = _match_in_catalog(req.lookup, api_models, suggest_query=req.requested)
         verdict = match.verdict(req)
