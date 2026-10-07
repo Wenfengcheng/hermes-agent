@@ -30,7 +30,14 @@ def _unknown_threshold_recovery_budget(agent: Any) -> int:
         return 0
     if type(output) is not int or output <= 0:
         return 0
-    return max(0, window - output)
+    # The assembled pressure includes heuristic deltas, not an exact tokenizer
+    # count. Reuse the compressor's conservative trigger rather than admitting
+    # requests right up to the hard input/output boundary.
+    from agent.context_compressor import ContextCompressor
+
+    if output >= window:
+        return 0
+    return ContextCompressor._compute_threshold_tokens(window, 0.5, output)
 
 
 def run_preflight_gate(

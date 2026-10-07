@@ -9,6 +9,9 @@ from tests.agent.test_413_compression import _new_test_agent, _mock_response
 @pytest.mark.parametrize("threshold,window,output,pressure,recovers", [
     (0, 65_536, 4096, 10_000, True),
     (34_078, 65_536, 4096, 10_000, True),
+    # A rough estimate below the hard input window still needs safety headroom.
+    (0, 65_536, 4096, 60_000, False),
+    (0, 65_536, 4096, 50_000, True),
     (0, 65_536, 4096, 61_440, False),
     (0, 65_536, 4096, 70_000, False),
     (0, 0, 4096, 10_000, False),
@@ -47,5 +50,5 @@ def test_small_rebuilt_request_after_overflow_can_finish(
         assert result["final_response"] == "Recovered", result
         assert agent.client.chat.completions.create.call_count == 2
     else:
-        assert result["compression_exhausted"] is True
+        assert result.get("compression_exhausted") is True, result
         assert agent.client.chat.completions.create.call_count == 1
