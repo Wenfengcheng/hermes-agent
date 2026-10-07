@@ -45,13 +45,28 @@ def test_recovery_budget_reserves_actual_thinking_output(model, reasoning, ephem
     assert agent._ephemeral_max_output_tokens == ephemeral
 
 
-@pytest.mark.parametrize("pressure,recovers", [(10_000, True), (40_000, False)])
-def test_manual_thinking_recovery_through_conversation(pressure, recovers, monkeypatch):
+@pytest.mark.parametrize("pressure,recovers,middleware_kind", [
+    (10_000, True, None), (40_000, False, None),
+    (10_000, False, "llm_request"), (10_000, False, "llm_execution"),
+])
+def test_manual_thinking_recovery_through_conversation(pressure, recovers, middleware_kind, monkeypatch):
     from tests.agent.test_413_compression import _new_test_agent
     from agent.transports.anthropic import AnthropicTransport
     import time
     monkeypatch.setattr(time, "sleep", lambda *_: None)
     agent = _new_test_agent()
+    from hermes_cli.plugins import PluginManager
+    manager = PluginManager()
+    manager._discovered = True
+    if middleware_kind == "llm_request":
+        manager._middleware[middleware_kind] = [
+            lambda request, **_: {"request": {**request, "max_tokens": 65_000}}
+        ]
+    elif middleware_kind == "llm_execution":
+        manager._middleware[middleware_kind] = [
+            lambda request, next_call, **_: next_call({**request, "max_tokens": 65_000})
+        ]
+    monkeypatch.setattr("hermes_cli.plugins._delivery_manager", lambda: manager)
     agent.api_mode = "anthropic_messages"
     agent.model = "claude-sonnet-4-5"
     agent.reasoning_config = {"enabled": True, "effort": "xhigh"}
@@ -100,6 +115,13 @@ def test_unknown_or_exhausted_messages_budget_stays_fail_closed(window,output):
     agent = SimpleNamespace(api_mode="anthropic_messages", max_tokens=output, model="claude-sonnet-4-5",
                             reasoning_config={"enabled": False}, _anthropic_preserve_dots=lambda: False,
                             context_compressor=SimpleNamespace(context_length=window))
+    assert _unknown_threshold_recovery_budget(agent) == 0
+
+
+@pytest.mark.parametrize("provider", ["nous", "nous-portal", "nousresearch"])
+def test_messages_profile_body_overrides_stay_fail_closed(provider):
+    agent = SimpleNamespace(api_mode="anthropic_messages", provider=provider,
+                            max_tokens=4096, context_compressor=SimpleNamespace(context_length=65_536))
     assert _unknown_threshold_recovery_budget(agent) == 0
 
 

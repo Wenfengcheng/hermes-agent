@@ -29,6 +29,16 @@ def _unknown_threshold_recovery_budget(agent: Any) -> int:
     # behavior rather than pretending the configured cap is the wire reservation.
     if getattr(agent, "api_mode", None) != "anthropic_messages":
         return 0
+    # Request/execution middleware runs after this gate and can replace the
+    # payload, including its model and output cap. Do not pre-run callbacks to
+    # preview it: that would repeat side effects and consume one-shot state.
+    from hermes_cli.plugins import has_middleware
+
+    if has_middleware("llm_request") or has_middleware("llm_execution"):
+        return 0
+    # Portal's user-overridable profile also merges a body after the builder.
+    if getattr(agent, "provider", None) in {"nous", "nous-portal", "nousresearch"}:
+        return 0
     window = getattr(agent.context_compressor, "context_length", None)
     output = getattr(agent, "max_tokens", None)
     from agent.anthropic_adapter import (
