@@ -116,6 +116,31 @@ def test_fallback_is_shaped_afresh_with_realized_provider(fixture, monkeypatch):
     messages = [{"role": "user", "content": "original"}]
     assert aux.call_llm(task="title_generation", messages=messages) is response
     assert len(sent) == 2
-    assert [r["messages"][0]["content"] for r in sent] == ["original shaped"] * 2
     assert seen[1]["model"] == "fallback-model"
+    assert [r["messages"][0]["content"] for r in sent] == ["original shaped"] * 2
     assert messages[0]["content"] == "original"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_middleware_cannot_switch_stream_consumption(fixture, stream):
+    context, sent, response = fixture
+    context.register_middleware("llm_request", lambda request, **kw: {
+        "request": dict(request, stream=not stream)})
+    assert aux.call_llm(task="moa_aggregator", messages=[], stream=stream) is response
+    assert bool(sent[0].get("stream")) is stream
+
+
+def test_noncopyable_option_cannot_alias_caller_messages(fixture):
+    from agent.auxiliary_middleware import shape_auxiliary_request
+    context, _, _ = fixture
+    class Opaque:
+        def __deepcopy__(self, memo):
+            raise TypeError("opaque handle")
+    def shape(request, **kw):
+        request["messages"][0]["content"] = "shaped"
+        return {"request": request}
+    context.register_middleware("llm_request", shape)
+    request = {"messages": [{"role": "user", "content": "original"}], "opaque": Opaque()}
+    shaped = shape_auxiliary_request(request, context={"task": "compression"})
+    assert shaped["messages"][0]["content"] == "shaped"
+    assert request["messages"][0]["content"] == "original"

@@ -112,8 +112,9 @@ attempt-local copy: rewriting messages does not edit the caller's history or
 accumulate transformations across retries. Returning no replacement or raising
 preserves the existing request-middleware fail-open behavior.
 
-This request-shaping boundary does not change provider/client selection or
-add auxiliary `llm_execution` middleware. Auxiliary observer events remain
+This request-shaping boundary preserves caller-selected `stream` and
+`stream_options` (the response consumer has already been selected). It does not
+change provider/client selection or add auxiliary `llm_execution` middleware. Auxiliary observer events remain
 `pre_auxiliary_call` / `post_auxiliary_call`, not the turn-scoped
 `pre_api_request` / `post_api_request` events.
 
