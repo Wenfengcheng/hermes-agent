@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +46,11 @@ class Vulnerability:
     severity: str = "UNKNOWN"
     summary: str = ""
     fixed_versions: list[str] = field(default_factory=list)
+
+    @property
+    def url(self) -> str:
+        """Stable advisory page, including when the details request failed."""
+        return "https://osv.dev/vulnerability/" + urllib.parse.quote(self.osv_id, safe="")
 
 
 @dataclass
@@ -271,9 +277,10 @@ def _render_human(findings: list[Finding], total_components: int) -> str:
             last_source = c.source
         lines.append(f"  {v.severity.ljust(8)}  {c.name}=={c.version}  {v.osv_id}")
         if summary := v.summary:
-            lines.append(f"           {summary if len(summary) <= 100 else summary[:97] + '...'}")
+            lines.append(f"           {summary}")
         if v.fixed_versions:
-            lines.append(f"           fixed in: {', '.join(v.fixed_versions[:3])}")
+            lines.append(f"           fixed in: {', '.join(v.fixed_versions)}")
+        lines.append(f"           {v.url}")
     return "\n".join(lines)
 
 
@@ -286,6 +293,7 @@ def _render_json(findings: list[Finding], total_components: int) -> str:
             "ecosystem": f.component.ecosystem, "source": f.component.source,
             "vuln_id": f.vuln.osv_id, "severity": f.vuln.severity,
             "summary": f.vuln.summary, "fixed_versions": f.vuln.fixed_versions,
+            "url": f.vuln.url,
         } for f in findings],
     }
     return json.dumps(payload, indent=2)
