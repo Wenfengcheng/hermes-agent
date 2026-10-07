@@ -10,7 +10,9 @@ import argparse
 import concurrent.futures
 import json
 import re
+import shutil
 import sys
+import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -280,6 +282,13 @@ def _render_human(findings: list[Finding], total_components: int) -> str:
         return f"No known vulnerabilities found across {total_components} component(s)."
 
     lines = [f"Found {len(findings)} known vulnerability finding(s) across {total_components} component(s):", ""]
+    # Prose wraps; identifiers, paths and URLs stay intact for copying. A tiny
+    # terminal may overflow on an individual word rather than destroy that word.
+    wrapper = textwrap.TextWrapper(
+        width=max(12, shutil.get_terminal_size((80, 24)).columns),
+        initial_indent="           ", subsequent_indent="           ",
+        break_long_words=False, break_on_hyphens=False,
+    )
     last_source = None
     for f in findings:
         c, v = f.component, f.vuln
@@ -290,7 +299,7 @@ def _render_human(findings: list[Finding], total_components: int) -> str:
         for location in c.locations:
             lines.append(f"           installed at: {location}")
         if summary := v.summary:
-            lines.append(f"           {summary}")
+            lines.extend(wrapper.fill(paragraph) for paragraph in summary.splitlines())
         if v.fixed_versions:
             lines.append(f"           fixed in: {', '.join(v.fixed_versions)}")
         lines.append(f"           {v.url}")
