@@ -18,7 +18,7 @@ async def collect_reply_audio(adapter, channel_id, thread_ts, current_ts, team_i
     """Reuse the hydrated cache and inbound audio cache; roots keep their own collector.
 
     Only earlier replies qualify. Selecting the newest four bounds downloads and
-    preserves the recent context; reversing that selection preserves conversation order.
+    preserves recent context while retaining conversation and attachment order.
     """
     cached = adapter._thread_context_cache.get(adapter._thread_cache_key(channel_id, thread_ts, team_id))
     lower, upper = _timestamp(thread_ts), _timestamp(current_ts)

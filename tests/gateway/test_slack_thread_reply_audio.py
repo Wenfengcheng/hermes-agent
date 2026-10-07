@@ -11,7 +11,17 @@ from plugins.platforms.slack.adapter import SlackAdapter
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mimetype,subtype", [("audio/mp4", ""), ("video/mp4", "slack_audio")])
 async def test_cold_reply_audio_reaches_inbound_media(tmp_path, mimetype, subtype):
-    adapter = SlackAdapter(PlatformConfig(enabled=True, token="fixture"))
+    import importlib
+    from pathlib import Path
+    from types import SimpleNamespace
+    from hermes_cli.plugins import PluginManager
+    manager = PluginManager()
+    module = manager._load_directory_module(
+        SimpleNamespace(path=Path(__file__).resolve().parents[2] / "plugins/platforms/slack"),
+        module_name="hermes_plugins.scout_slack_audio",
+    )
+    loaded_adapter = importlib.import_module(module.__name__ + ".adapter").SlackAdapter
+    adapter = loaded_adapter(PlatformConfig(enabled=True, token="fixture"))
     adapter._app = MagicMock()
     adapter._app.client = AsyncMock()
     adapter._bot_user_id = "U_BOT"
