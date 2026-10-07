@@ -361,7 +361,10 @@ def _validate_custom(req: _Request) -> dict[str, Any]:
     # Probe with the auth shape the api_mode expects.
     anthropic_style = req.api_mode == "anthropic_messages"
     probe_kwargs = {"api_mode": req.api_mode} if anthropic_style else {}
-    probe = _m.probe_api_models(req.api_key, req.base_url, request_headers=req.headers, **probe_kwargs)
+    # Explicit selection can wait for an entitlement-gated catalog to finish building;
+    # keep the generic probe's short default for latency-sensitive discovery callers.
+    probe = _m.probe_api_models(req.api_key, req.base_url, timeout=15.0, force_refresh=True,
+                                request_headers=req.headers, **probe_kwargs)
     api_models = probe.get("models")
     if api_models is not None:
         match = _match_in_catalog(req.lookup, api_models, suggest_query=req.requested)

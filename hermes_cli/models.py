@@ -2662,8 +2662,10 @@ def _probe_result(
 def probe_api_models(
     api_key: Optional[str], base_url: Optional[str], timeout: float = 5.0,
     api_mode: Optional[str] = None, request_headers: Optional[dict[str, str]] = None,
+    *, force_refresh: bool = False,
 ) -> dict[str, Any]:
     """Probe a ``/models`` endpoint with light URL heuristics (``base`` then ``base±/v1``).
+    ``force_refresh`` bypasses cached timeouts for explicit user validation.
     ``anthropic_messages`` mode sends ``x-api-key`` + ``anthropic-version`` instead of a bearer; the
     ``data[].id`` response shape is identical. ``models`` is None when no candidate answered."""
     normalized = (base_url or "").strip().rstrip("/")
@@ -2680,7 +2682,7 @@ def probe_api_models(
 
     tried: list[str] = []
     _neg_key = _probe_neg_key(normalized)
-    if _neg_key is not None:
+    if _neg_key is not None and not force_refresh:
         _neg_seen = _probe_neg_cache.get(_neg_key)
         if _neg_seen is not None and (time.monotonic() - _neg_seen) < _PROBE_NEG_TTL:
             return _probe_result(
