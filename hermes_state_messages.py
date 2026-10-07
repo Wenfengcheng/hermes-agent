@@ -1243,8 +1243,11 @@ class SessionMessagesMixin:
             cur = seen.get(key)
             if cur is None or (row["active"], row["id"]) > (cur["active"], cur["id"]):
                 seen[key] = row
-            order = row["display_order"] if "display_order" in row.keys() else None
-            order = row["id"] if order is None else min(order, row["id"])
+            order = row["id"]
+            if ("display_identity" in row.keys() and "display_order" in row.keys()
+                    and row["display_identity"] == self._display_identity(key)
+                    and row["display_order"] is not None):
+                order = min(order, row["display_order"])
             first_id[key] = min(first_id.get(key, order), order)
         # Order by the logical message's FIRST row, not the chosen representative's: a protected-tail
         # copy in a newer generation has a higher id than messages emitted after the original.
@@ -1315,8 +1318,9 @@ class SessionMessagesMixin:
         representatives: Dict[bytes, Tuple[int, int]] = {}
         positions: Dict[bytes, int] = {}
         with self._read_ctx() as conn:
-            has_order = "display_order" in self._message_column_names(conn)
-            order_column = "display_order" if has_order else "NULL AS display_order"
+            columns = self._message_column_names(conn)
+            order_column = "display_order" if "display_order" in columns else "NULL AS display_order"
+            identity_column = "display_identity" if "display_identity" in columns else "NULL AS display_identity"
             conn.execute("BEGIN")
             try:
                 has_session_index = conn.execute(
@@ -1326,7 +1330,7 @@ class SessionMessagesMixin:
                 index_hint = "INDEXED BY idx_messages_session_id" if has_session_index else "NOT INDEXED"
                 rows = conn.execute(
                     "SELECT id, role, content, timestamp, tool_call_id, tool_calls, tool_name, active, "
-                    f"display_kind, display_metadata, {order_column} FROM messages {index_hint} "
+                    f"display_kind, display_metadata, {order_column}, {identity_column} FROM messages {index_hint} "
                     f"WHERE session_id = ?{active_clause} ORDER BY id ASC",
                     (session_id,))
                 for row in rows:
@@ -1337,7 +1341,9 @@ class SessionMessagesMixin:
                     candidate = (row["active"], row["id"])
                     if current is None or candidate > current:
                         representatives[identity] = candidate
-                    order = row["id"] if row["display_order"] is None else min(row["id"], row["display_order"])
+                    order = row["id"]
+                    if identity == row["display_identity"] and row["display_order"] is not None:
+                        order = min(order, row["display_order"])
                     positions[identity] = min(positions.get(identity, order), order)
                 rows.close()
 
@@ -1553,10 +1559,11 @@ class SessionMessagesMixin:
         """``_CONVERSATION_ROW_COLUMNS`` rows for *session_ids* ORDER BY id (timestamps are not monotonic
         and would break tool-call adjacency)."""
         with self._read_ctx() as conn:
-            order_column = ("display_order" if "display_order" in self._message_column_names(conn)
-                            else "NULL AS display_order")
+            columns = self._message_column_names(conn)
+            order_column = "display_order" if "display_order" in columns else "NULL AS display_order"
+            identity_column = "display_identity" if "display_identity" in columns else "NULL AS display_identity"
         return self._read_all(
-            f"SELECT {'session_id, ' if with_session_id else ''}{order_column}, {self._CONVERSATION_ROW_COLUMNS} "
+            f"SELECT {'session_id, ' if with_session_id else ''}{order_column}, {identity_column}, {self._CONVERSATION_ROW_COLUMNS} "
             f"FROM messages WHERE session_id IN ({_placeholders(session_ids)})"
             f"{active_clause} ORDER BY id", tuple(session_ids))
 

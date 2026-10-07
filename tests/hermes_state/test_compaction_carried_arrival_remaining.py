@@ -35,3 +35,28 @@ def test_explicit_carried_steer_arrival(tmp_path, named, row_ids, changed):
         assert len(hidden) == 1 and hidden[0]['compacted'] == 0
     finally:
         db.close()
+
+
+@pytest.mark.parametrize('projection', ['resume', 'messages'])
+def test_stale_identity_does_not_donate_display_position(tmp_path, projection):
+    path = tmp_path / 'stale.db'
+    db = SessionDB(path)
+    try:
+        db.create_session('chat', source='desktop')
+        db.append_message('chat', 'user', 'first input')
+        row_id = db.append_message('chat', 'user', 'second input')
+        db._execute_write(lambda conn: conn.execute(
+            'UPDATE messages SET display_order=0, display_identity=? WHERE id=?',
+            (b'stale-identity', row_id)))
+        # Force the read-only legacy projection; it must not trust the stale slot.
+        db._execute_write(lambda conn: conn.execute(
+            'UPDATE messages SET display_order=NULL WHERE id<>?', (row_id,)))
+    finally:
+        db.close()
+    db = SessionDB(path, read_only=True)
+    try:
+        rows = (db.get_resume_conversations('chat')[1] if projection == 'resume'
+                else db.get_messages('chat', include_compacted=True))
+        assert [m['content'] for m in rows] == ['first input', 'second input']
+    finally:
+        db.close()
