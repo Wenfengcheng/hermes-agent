@@ -43,6 +43,7 @@ def open_db(
     path.parent.mkdir(parents=True, exist_ok=True)
     # Resolved at call time: fd-leak tests patch ``sqlite3.connect`` through the caller's module.
     conn = sqlite3.connect(path, timeout=busy_timeout_ms / 1000, check_same_thread=check_same_thread)
+    initializing = False
     try:
         conn.row_factory = row_factory
         conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
@@ -60,8 +61,13 @@ def open_db(
         if synchronous_full:
             conn.execute("PRAGMA synchronous=FULL")
         if initialize is not None:
+            initializing = True
             initialize(conn)
-    except BaseException:
+    except BaseException as exc:
+        # Only our own connection setup is attributable to path. An initializer
+        # callback can access another store, so never infer its error's owner.
+        if isinstance(exc, sqlite3.DatabaseError) and not initializing:
+            exc._hermes_sqlite_db_path = path.resolve()
         conn.close()
         raise
     return conn

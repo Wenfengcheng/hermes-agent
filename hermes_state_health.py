@@ -76,6 +76,12 @@ def note_storage_error(db_path, exc: BaseException) -> bool:
     """Latch *db_path* when *exc* is structural corruption; True when it was."""
     if not is_structural_corruption_error(exc):
         return False
+    # A profile callback may open another store (for example projects.db).
+    # Known connection-setup provenance overrides the caller's assumed path;
+    # unannotated SessionDB read errors retain the existing fail-closed policy.
+    origin = getattr(exc, "_hermes_sqlite_db_path", None)
+    if origin is not None and _key(origin) != _key(db_path):
+        return False
     mark_storage_corrupt(db_path, exc)
     return True
 
