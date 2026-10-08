@@ -1031,9 +1031,11 @@ class RelayAdapter(BasePlatformAdapter):
         scope_id/user_id and the connector's fail-closed tenant guard declines them."""
         if event is None or getattr(event, "source", None) is None:
             return
-        self._capture_scope(event)
+        # Restored sources may carry a guessed chat_type and stale/synthetic IDs.
+        # Prime delivery discriminators, never overwrite live inbound observations.
+        self._capture_scope(event, observed=False)
 
-    def _capture_scope(self, event) -> None:
+    def _capture_scope(self, event, *, observed: bool = True) -> None:
         """Remember a chat's egress discriminators from an inbound event. Never raises.
 
         scope_id: scoped (guild/channel) message → routing-table resolution. user_id:
@@ -1056,16 +1058,19 @@ class RelayAdapter(BasePlatformAdapter):
                 self._platform_by_chat[chat] = str(platform_value)
             for attr, cache in (
                 ("user_id", self._dm_user_by_chat), ("scope_id", self._scope_by_chat),
-                ("chat_type", self._chat_type_by_chat),
                 ("profile", self.__dict__.setdefault("_profile_by_chat", {})),
             ):
                 value = getattr(src, attr, None)
                 if value:
                     cache[chat] = str(value)
-            # Triggering message ts for the typing/status lane's synthetic thread anchor.
-            message_id, _chat = _event_ids(event)
-            if message_id:
-                self._last_inbound_ts_by_chat[chat] = str(message_id)
+            if observed:
+                chat_type = getattr(src, "chat_type", None)
+                if chat_type:
+                    self._chat_type_by_chat[chat] = str(chat_type)
+                # Only a live triggering message can advance the status anchor.
+                message_id, _chat = _event_ids(event)
+                if message_id:
+                    self._last_inbound_ts_by_chat[chat] = str(message_id)
         except Exception:  # noqa: BLE001 - scope tracking must never break inbound
             pass
 
