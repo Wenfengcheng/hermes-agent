@@ -111,6 +111,64 @@ def test_plaintext_yes_resolves_approval(reply):
     _clear_approval_state()
 
 
+@pytest.mark.parametrize("reply", ["session approval", "  SESSION APPROVAL  ", "approve session"])
+def test_session_phrase_crosses_busy_adapter_and_resolves_only_its_session(reply):
+    """#134817: a pending session-scope reply reaches the canonical resolver."""
+    from gateway.platforms.base import BasePlatformAdapter
+    from tools.approval import _gateway_queues
+    from tools.approval_gateway_wait import _ApprovalEntry
+
+    _clear_approval_state()
+    try:
+        runner, adapter = _make_runner()
+        session_key, entry = _register_blocking_approval(runner)
+        other = _ApprovalEntry({"command": "unrelated fixture command"})
+        _gateway_queues[session_key + ":other"] = [other]
+        adapter._active_sessions = {session_key: object()}
+        adapter._busy_session_handler = runner._handle_active_session_busy_message
+        adapter._canonicalize = lambda source: None
+        adapter._pending_messages = {}
+
+        asyncio.run(BasePlatformAdapter._handle_message_while_active(
+            adapter, _make_event(reply), session_key
+        ))
+
+        assert entry.event.is_set()
+        assert entry.result == "session"
+        assert not other.event.is_set()
+        assert not adapter._pending_messages
+        adapter._send_with_retry.assert_awaited()
+    finally:
+        _clear_approval_state()
+
+
+@pytest.mark.parametrize("text,pending,authorized,control", [
+    ("session approval", False, True, True),
+    ("session approval", True, False, True),
+    ("session approval", True, True, False),
+    ("no session approval", True, True, True),
+    ("what is session approval?", True, True, True),
+    ("session approval for all actions", True, True, True),
+])
+def test_session_phrase_does_not_widen_pending_or_sender_gates(text, pending, authorized, control):
+    _clear_approval_state()
+    try:
+        runner, _adapter = _make_runner()
+        session_key, entry = _register_blocking_approval(runner)
+        if not pending:
+            from tools.approval import _gateway_queues
+            _gateway_queues.pop(session_key)
+        runner._is_user_authorized_for_source = lambda source: authorized
+        event = _make_event(text)
+        event.allow_gateway_control = control
+        asyncio.run(runner._handle_active_session_busy_message(event, session_key))
+        assert not entry.event.is_set()
+        assert entry.result is None
+        assert event.text == text
+    finally:
+        _clear_approval_state()
+
+
 def test_no_pending_approval_does_not_consume_conversational_yes():
     """A bare 'yes' with NO blocking approval must NOT be treated as an
     approval — it falls through to normal busy handling (design intent:
