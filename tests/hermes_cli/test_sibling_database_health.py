@@ -4,7 +4,8 @@ import sqlite3
 import pytest
 
 
-def test_failed_projects_open_keeps_session_store_writable(tmp_path, monkeypatch):
+@pytest.mark.parametrize("entrypoint", ["callback", "project_tree"])
+def test_failed_projects_open_keeps_session_store_writable(tmp_path, monkeypatch, entrypoint):
     from hermes_state import SessionDB
     from hermes_state_health import storage_state
     from hermes_cli import projects_db
@@ -23,7 +24,15 @@ def test_failed_projects_open_keeps_session_store_writable(tmp_path, monkeypatch
         with projects_db.connect_closing() as projects:
             projects.execute("SELECT * FROM projects").fetchall()
 
-    assert _read_profile_db("fixture", tmp_path, errors, read_projects) is None
+    if entrypoint == "callback":
+        assert _read_profile_db("fixture", tmp_path, errors, read_projects) is None
+    else:
+        from hermes_cli.web_routers import profiles
+        monkeypatch.setattr(profiles, "_SIDEBAR_CACHE_TTL_SECONDS", 0)
+        monkeypatch.setattr(profiles, "_profile_targets", lambda *a, **kw: [("fixture", tmp_path)])
+        payload = profiles.get_profiles_projects_tree()
+        errors = payload["errors"]
+        assert payload["projects"] == []
     assert errors and "not a database" in errors[0]["error"]
     assert storage_state(path) == "ok"
     db = SessionDB(db_path=path)
