@@ -29,7 +29,13 @@ true: `canonical_session` resolves the exact `Bot Chat` title, not the most rece
 conversation, and `last_session` is the newest visible local conversation (a hidden
 row never wins). Both count only local chats the actor owns or reads as an operator:
 minted `local-*` chats, and pre-upgrade chats adopted under their durable binding
-(they keep their old id). A sibling's row carries the same fields only when this
+(they keep their old id). `worker_session` carries the newest visible, unarchived
+`kanban`, `tool`, or `oneshot` session the actor owns or reads as an operator,
+with `id`, normalized `source`, `title`, and `last_active` (the persisted heartbeat,
+falling back to its start time). These worker rows need no local-chat binding and
+remain excluded from `last_session`; clients apply their existing freshness window.
+An eligible row with no worker has `worker_session: null`. `include_sessions: false`
+omits all three session fields. A sibling's row carries the same fields only when this
 connection already routes session verbs to it (a host-scoped grant: the Desktop's
 shared socket, the dashboard), read from that sibling's own authority with this
 connection's subject and capabilities. A profile-bound ticket gets metadata alone,

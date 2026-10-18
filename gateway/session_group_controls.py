@@ -332,6 +332,17 @@ def _read_bot_sessions(db, subject, operator):
                     'message_count': target['message_count'] or 0}
 
         fields = {'last_session': None, 'worker_session': None, 'canonical_session': None}
+        # Workers are deliberately absent from conversation pickers, but their heartbeat still
+        # drives the roster's working indicator. They need not have a local-chat binding.
+        worker = conn.execute(
+            f"SELECT id, source, title, last_activity_at, started_at FROM sessions WHERE {owner_filter}"
+            f"archived=0 AND hidden=0 AND LOWER(TRIM(COALESCE(source,''))) IN ({hidden_sources}) "
+            "ORDER BY COALESCE(last_activity_at,started_at) DESC LIMIT 1",
+            (*owner_params, *INTERNAL_LISTING_SOURCES)).fetchone()
+        if worker:
+            fields['worker_session'] = {'id': worker['id'], 'source': worker['source'].strip().lower(),
+                                        'title': worker['title'] or '',
+                                        'last_active': worker['last_activity_at'] or worker['started_at'] or 0}
         # The named registry is not a recency window and canonical chats are hidden.
         canonical = conn.execute(f'SELECT * FROM sessions WHERE title=? AND {_LOCAL_CHAT}',
                                  ('Bot Chat', LEGACY_PREFIX)).fetchone()
