@@ -680,7 +680,8 @@ class SessionPersistenceMixin:
 
     def _save_entry(
         self, session_key: str, *, entry_data: Optional[dict[str, Any]] = None,
-        lock_held: bool = False) -> None:
+        lock_held: bool = False, mutate_metadata=None,
+    ) -> None:
         """Persist ONE routing entry via UPSERT — the per-turn fast path (a full rewrite fsyncs a
         multi-MB sessions.json). The key -> session_id mapping never changes here: structural
         transitions use the full rewrite (which also refreshes the sessions.json mirror; it may lag
@@ -688,11 +689,16 @@ class SessionPersistenceMixin:
         ``_save_lock`` the upsert is skipped if a full snapshot or a newer fast save of this key
         already persisted (the reverse case lives in ``_persist_routing_data``). No DB or a failed
         upsert falls back to the full rewrite. ``entry_data`` persists a candidate BEFORE it is
-        published to the live entry (failure-atomic transitions); the fallback carries it too."""
+        published to the live entry (failure-atomic transitions); the fallback carries it too.
+        ``mutate_metadata`` instead edits the live entry before capturing its revision under the
+        routing lock. It must not change the route target, and can return False to skip the write.
+        """
         guard = contextlib.nullcontext() if lock_held else self._lock
         with guard:
             entry = self._entries.get(session_key)
             if entry is None:
+                return
+            if mutate_metadata is not None and mutate_metadata(entry) is False:
                 return
             serialized = dict(entry_data) if entry_data is not None else entry.to_dict()
             # The O(n) full snapshot is deferred to the fallback branch.

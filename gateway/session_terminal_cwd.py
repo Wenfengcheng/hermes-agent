@@ -80,9 +80,15 @@ def persist_turn_cwd(runner, session_key: str | None, token: object | None) -> N
     cwd = get_session_cwd(session_key)
     if not cwd or entry.metadata.get(_METADATA_KEY) == cwd:
         return
+
+    def update_cwd(current):
+        if current.created_at != token or current.metadata.get(_METADATA_KEY) == cwd:
+            return False
+        current.metadata = {**current.metadata, _METADATA_KEY: cwd}
+        return True
+
     try:
-        runner.session_store._update_entry(  # the conversation check and the write under one lock
-            session_key, lambda e: e.created_at == token and not e.metadata.update({_METADATA_KEY: cwd}))
+        runner.session_store._save_entry(session_key, mutate_metadata=update_cwd)
     except Exception as exc:  # health: allow BLE001 -- runs in the turn's finally: a failed save must not fail the finished turn
         logger.warning("Could not save the terminal cwd of %s: %s", session_key, exc)
 
