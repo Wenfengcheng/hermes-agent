@@ -14,6 +14,10 @@ class CuratedFallbackModels(list[str]):
     treats it as a placeholder, never as the account's real catalog (#107391)."""
 
 
+class CatalogAuthRejectedModels(CuratedFallbackModels):
+    """Fallback hints after the catalog endpoint rejected authentication."""
+
+
 # Fallback OpenRouter snapshot used when the live catalog is unavailable, as
 # ``(model_id, description shown in menus)``. ``:free`` SKUs are described "free".
 _OPENROUTER_DESCRIPTIONS = {

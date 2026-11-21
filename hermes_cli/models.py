@@ -33,6 +33,7 @@ from hermes_cli.route_identity import normalize_route_base_url
 from hermes_cli.urllib_security import open_credentialed_url
 from hermes_cli.version_info import hermes_user_agent
 from hermes_cli.models_catalog_static import (
+    CatalogAuthRejectedModels,
     CuratedFallbackModels,
     CANONICAL_PROVIDERS,
     OPENROUTER_MODELS,
@@ -1797,7 +1798,10 @@ def _live_result_entry(fp: str, live: list[str], existing: Any, at: Optional[flo
         return _cache_entry(fp, live, at)
     if _cache_entry_valid(existing, fp) and not existing.get("fallback"):
         return None
-    return {**_cache_entry(fp, live, at), "fallback": True}
+    row = {**_cache_entry(fp, live, at), "fallback": True}
+    if isinstance(live, CatalogAuthRejectedModels):
+        row["catalog_auth_rejected"] = True
+    return row
 
 
 def _ollama_native_probe_reachable() -> bool:
@@ -1994,6 +1998,12 @@ def _model_requires_account_discovery(provider: Optional[str], model: str) -> bo
         slug in {"openai", "openai-api"} and is_astra_model(model))
 
 
+def _cached_catalog_ids(entry: dict, models: list[str]) -> list[str]:
+    if entry.get("fallback") and entry.get("catalog_auth_rejected") is True:
+        models = CatalogAuthRejectedModels(models)
+    return _chat_catalog_rows(models)
+
+
 def cached_provider_model_ids(
     provider: Optional[str], *, force_refresh: bool = False,
     ttl_seconds: int = _PROVIDER_MODELS_CACHE_TTL, non_blocking: bool = False) -> list[str]:
@@ -2018,7 +2028,7 @@ def cached_provider_model_ids(
             if tier == "stale":
                 _spawn_swr_refresh(normalized)
             verified = tier == "fresh" and not entry.get("fallback")
-            return _chat_catalog_rows([m for m in entry["models"] if verified or not _model_requires_account_discovery(normalized, m)])
+            return _cached_catalog_ids(entry, [m for m in entry["models"] if verified or not _model_requires_account_discovery(normalized, m)])
 
     if non_blocking and not force_refresh:
         # Serve same-credential hints past the SWR window while the daemon warms the next open.
@@ -2036,7 +2046,7 @@ def cached_provider_model_ids(
             # The live fetch degraded to the curated list; the account's real catalog is on disk.
             return _chat_catalog_rows([model for model in entry["models"] if not _model_requires_account_discovery(normalized, model)])
         _store_cache_entry(normalized, fresh)
-        return _chat_catalog_rows(list(live))
+        return _cached_catalog_ids(fresh, list(live))
 
     if is_ollama:
         if _ollama_native_probe_reachable():

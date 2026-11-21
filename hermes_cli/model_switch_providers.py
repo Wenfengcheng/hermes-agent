@@ -758,11 +758,14 @@ class _PickerBuild:
 
     def add_builtin_row(
         self, slug: str, name: str, is_current: bool, model_ids: list, source: str, *, uncapped_ok: bool = True,
+        catalog_auth_rejected: bool = False,
     ) -> None:
         row = {
             "slug": slug, "name": name, "is_current": is_current, "is_user_defined": False,
             "models": _cap_models(model_ids, self.max_models, slug if uncapped_ok else ""),
             "total_models": len(model_ids), "source": source}
+        if catalog_auth_rejected:
+            row["catalog_auth_rejected"] = True
         if slug == "nous":
             # Free-tier identity: one row "Nous · free tier" / nous/welcome, or no row when
             # nous.guest is off. Still marks the slug seen so a later lap cannot re-emit it.
@@ -911,6 +914,7 @@ def _lap_overlay_rows(b: _PickerBuild, data: dict, user_providers: dict) -> None
     """Section 2: Hermes-only providers (nous, openai-codex, opencode-go, plugin overlays, ...)."""
     from agent.models_dev import models_dev_provider_map
     from hermes_cli.model_switch import _declared_model_ids
+    from hermes_cli.models_catalog_static import CatalogAuthRejectedModels
     from hermes_cli.providers import hermes_overlays
 
     # Overlay keys may be models.dev IDs while config.yaml uses Hermes IDs.
@@ -940,11 +944,13 @@ def _lap_overlay_rows(b: _PickerBuild, data: dict, user_providers: dict) -> None
                                              non_blocking=b.non_blocking_catalogs)
         # A providers.<overlay>.models block extends the row exactly as it does for built-in rows
         # (section 1); section 3 never emits it because this row owns the slug (#27989).
+        auth_rejected = isinstance(model_ids, CatalogAuthRejectedModels)
         configured = user_providers.get(hermes_slug) or user_providers.get(pid) if isinstance(user_providers, dict) else None
         if isinstance(configured, dict):
             model_ids = list(dict.fromkeys([*_declared_model_ids(configured.get("models")), *model_ids]))
         b.add_builtin_row(
-            hermes_slug, get_label(hermes_slug), b.current_provider in (hermes_slug, pid), model_ids, "hermes")
+            hermes_slug, get_label(hermes_slug), b.current_provider in (hermes_slug, pid), model_ids, "hermes",
+            catalog_auth_rejected=auth_rejected)
         b.seen_slugs.add(pid.lower())
 
 

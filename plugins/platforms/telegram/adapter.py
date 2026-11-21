@@ -4076,10 +4076,14 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
         extra = f"\n*{t('platform.telegram.picker.more_available', count=str(total - shown))}*" if total > shown else ""
         # Window plans: the limit line under the provider (absent for every other account).
         plan_line = f"\n⚠️ {provider['plan_line']}" if provider and provider.get("plan_line") else ""
+        catalog_line = (
+            f"\n⚠️ {t('platform.telegram.picker.catalog_auth_rejected')}"
+            if provider and provider.get("catalog_auth_rejected") else ""
+        )
         await self._picker_edit(
             query,
             f"⚙ *{t('platform.telegram.picker.title')}*\n\n"
-            f"{t('platform.telegram.picker.provider_label', provider=f'*{pname}*')}{page_info}{plan_line}\n"
+            f"{t('platform.telegram.picker.provider_label', provider=f'*{pname}*')}{page_info}{plan_line}{catalog_line}\n"
             f"{t('platform.telegram.picker.select_model')}{extra}",
             keyboard)
 

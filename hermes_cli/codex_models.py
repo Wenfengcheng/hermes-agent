@@ -175,12 +175,16 @@ def _fetch_models_from_api(access_token: str, base_url: Optional[str] = None) ->
         from agent.codex_headers import codex_account_headers
         headers = {"Authorization": f"Bearer {access_token}", **codex_account_headers(access_token)}
         from agent.model_metadata import fetch_codex_catalog_entries
-        entries, _status = fetch_codex_catalog_entries(
+        entries, status = fetch_codex_catalog_entries(
             lambda url: httpx.get(url, headers=headers, timeout=10), base_url=catalog_base)
     except Exception as exc:
         logger.debug("Failed to fetch Codex models from API: %s", exc)
         return []
 
+    if not entries and status == 401:
+        from hermes_cli.models_catalog_static import CatalogAuthRejectedModels
+
+        return CatalogAuthRejectedModels()
     return _finalize_codex_models(_ranked_slugs(entries))
 
 
@@ -219,13 +223,15 @@ def get_codex_model_ids(access_token: Optional[str] = None, base_url: Optional[s
     ``CuratedFallbackModels``: a cache placeholder that never replaces a verified catalog, since
     account-gated rows such as Astra are absent from the offline hints."""
     codex_home = Path(os.getenv("CODEX_HOME", "").strip() or str(Path.home() / ".codex")).expanduser()
+    api_models = []
     if access_token:
         api_models = _fetch_models_from_api(access_token, base_url=base_url)
         if api_models:
             return _finalize_codex_models(api_models)
     # Late: models_catalog_static builds its codex table from this module at import time.
-    from hermes_cli.models_catalog_static import CuratedFallbackModels
+    from hermes_cli.models_catalog_static import CatalogAuthRejectedModels, CuratedFallbackModels
 
     default_model = _read_default_model(codex_home)
     hints = [*([default_model] if default_model else []), *_read_cache_models(codex_home), *DEFAULT_CODEX_MODELS]
-    return CuratedFallbackModels(_finalize_codex_models([m for m in hints if not codex_model_requires_account_discovery(m)]))
+    fallback = CatalogAuthRejectedModels if isinstance(api_models, CatalogAuthRejectedModels) else CuratedFallbackModels
+    return fallback(_finalize_codex_models([m for m in hints if not codex_model_requires_account_discovery(m)]))

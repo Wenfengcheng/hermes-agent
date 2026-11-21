@@ -198,6 +198,53 @@ async def test_model_buttons_still_over_budget_keep_head_and_tail_with_plan_word
     assert short == ["gpt-5.1", "gpt-5.2"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 503, 200])
+async def test_codex_picker_distinguishes_auth_rejection_from_outage(monkeypatch, tmp_path, plain_keyboards, status):
+    import httpx
+    from hermes_cli import auth
+    from hermes_cli.model_switch_providers import list_picker_providers
+
+    base_url = "https://codex.example.test/backend-api/codex"
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setattr(auth, "_load_auth_store", lambda *a, **kw: {"providers": {"openai-codex": {}}})
+    monkeypatch.setattr(auth, "resolve_codex_runtime_credentials", lambda **kw: {
+        "api_key": "fixture-key", "base_url": base_url,
+    })
+    requests = []
+
+    def get(url, **kwargs):
+        if url.startswith(base_url + "/models?"):
+            requests.append(url)
+            return httpx.Response(status, json={"models": [{"slug": "fixture-live-model"}]} if status == 200 else {})
+        raise httpx.ConnectError("fixture has no other catalog")
+
+    monkeypatch.setattr(httpx, "get", get)
+    adapter = _make_adapter()
+    # Open twice so the same contract must survive a fresh fallback cache hit.
+    for opening in range(2):
+        prior_requests = len(requests)
+        providers = list_picker_providers(
+            current_provider="openai-codex", user_providers={"openai-codex": {"models": ["fixture-configured-model"]}},
+        )
+        codex = next(row for row in providers if row["slug"] == "openai-codex")
+        adapter._model_picker_state["12345"] = {
+            "providers": [codex], "current_model": "m", "current_provider": "openai-codex",
+            "session_key": "s", "on_model_selected": AsyncMock(), "msg_id": 42,
+        }
+        query = AsyncMock()
+        query.message.chat_id = 12345
+        await adapter._handle_model_picker_callback(query, "mp:openai-codex", "12345")
+        edit = query.edit_message_text.call_args.kwargs
+        assert requests, "the real catalog fetch must reach the fixture"
+        if opening:
+            assert len(requests) == prior_requests
+        assert "fixture-configured-model" in codex["models"]
+        assert ("fixture-live-model" in codex["models"]) is (status == 200)
+        assert any(b.callback_data.startswith("mm:") for b in _keyboard_buttons(edit["reply_markup"]))
+        assert ("authentication" in edit["text"].lower()) is (status == 401)
+
+
 def _gateway_wired_adapter():
     """Real adapter with the real gateway auth callback, as ``GatewayRunner`` wires it."""
     from gateway.config import GatewayConfig, Platform
