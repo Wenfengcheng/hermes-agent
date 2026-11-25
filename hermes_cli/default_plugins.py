@@ -295,16 +295,26 @@ def install_and_record(*, say: Callable[[str], None] = print, wait: float = 900.
     """The one coordinator (update tail and detached child): :func:`install_defaults_all_homes` again until
     no rescan was requested meanwhile (a profile created during the pass), then the outcome the boot step
     reads: a failure begins the backoff, a clean pass marks this revision settled."""
-    import time
     from hermes_cli.memory_provider_migration import _note_failure, _note_success
     from pm.environments import dependency_home_root
     root = Path(dependency_home_root())
     rerun = _state(root, "rerun")
+
+    def marker_mtime():
+        try:
+            return rerun.stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
+
+    before = marker_mtime()
     while True:
-        started = time.time()
         outcome = install_defaults_all_homes(say=say, wait=wait)
-        if not (rerun.exists() and rerun.stat().st_mtime >= started):
+        after = marker_mtime()
+        # A request changes the marker, even if its new mtime is older than
+        # the previous one. An unchanged future mtime is not a request.
+        if after is None or after == before:
             break
+        before = after
     if outcome["owed"]:
         _note_failure(root, _BACKOFF)
         # A later pass (a profile created after this revision settled) can fail too: owed again.

@@ -194,6 +194,64 @@ def test_a_new_home_or_a_failed_pass_unsettles_the_revision(tmp_path, monkeypatc
     assert default_plugins.step_install_default_plugins().get("owed"), "a failed pass left the revision settled"
 
 
+def test_unchanged_future_rescan_marker_does_not_repeat_the_pass(tmp_path, monkeypatch):
+    import os
+    import time
+
+    import pm.environments
+    import pm.plugins_state
+
+    monkeypatch.setattr(pm.environments, "dependency_home_root", lambda: tmp_path)
+    monkeypatch.setattr(default_plugins, "_identity", lambda: "test-revision")
+    marker = tmp_path / "cache" / "default-plugins.rerun"
+    marker.parent.mkdir()
+    marker.touch()
+    future = time.time() + 7200
+    os.utime(marker, (future, future))
+    passes = 0
+
+    def list_homes():
+        nonlocal passes
+        passes += 1
+        assert passes == 1, "an unchanged marker requested another scan"
+        return []
+
+    monkeypatch.setattr(pm.plugins_state, "dependency_homes", list_homes)
+    assert default_plugins.install_and_record() == {"installed": [], "owed": []}
+    assert passes == 1
+    assert (marker.parent / "default-plugins.settled").read_text() == "test-revision"
+
+
+def test_rescan_request_during_pass_is_honored_even_if_mtime_moves_back(tmp_path, monkeypatch):
+    import os
+    import time
+
+    import pm.environments
+    import pm.plugins_state
+
+    monkeypatch.setattr(pm.environments, "dependency_home_root", lambda: tmp_path)
+    monkeypatch.setattr(default_plugins, "_identity", lambda: "test-revision")
+    marker = tmp_path / "cache" / "default-plugins.rerun"
+    marker.parent.mkdir()
+    marker.touch()
+    now = time.time()
+    os.utime(marker, (now, now))
+    observed = []
+
+    def list_homes():
+        observed.append(marker.stat().st_mtime_ns)
+        assert len(observed) <= 2, "one request caused multiple rescans"
+        if len(observed) == 1:
+            # The request records a wall-clock time after a backward adjustment.
+            os.utime(marker, (now - 3600, now - 3600))
+        return []
+
+    monkeypatch.setattr(pm.plugins_state, "dependency_homes", list_homes)
+    default_plugins.install_and_record()
+    assert len(observed) == 2
+    assert observed[1] < observed[0]
+
+
 def test_default_entries_keep_the_tier_and_platform_rules(monkeypatch):
     import dataclasses
 
